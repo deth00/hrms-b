@@ -1,0 +1,45 @@
+import { Router } from 'express';
+import { healthRouter } from './health.routes.js';
+import { authRouter } from './auth.routes.js';
+import { userRouter } from './user.routes.js';
+import { roleRouter } from './role.routes.js';
+import { organizationRouter } from './organization.routes.js';
+import { positionRouter } from './position.routes.js';
+import { employeeRouter } from './employee.routes.js';
+import { scheduleRouter } from './schedule.routes.js';
+import { attendanceRouter } from './attendance.routes.js';
+import { leaveRouter } from './leave.routes.js';
+import { overtimeRouter } from './overtime.routes.js';
+import { approvalRouter } from './approval.routes.js';
+import { auditRouter } from './audit.routes.js';
+import { notificationRouter } from './notification.routes.js';
+import { payrollRouter } from './payroll.routes.js';
+import { payslipRouter } from './payslip.routes.js';
+import { paymentRouter } from './payment.routes.js';
+import { paymentOpsRouter } from './paymentOps.routes.js';
+import { accountingRouter } from './accounting.routes.js';
+import { reportingRouter } from './reporting.routes.js';
+
+export const v1Router = Router();
+
+v1Router.use(healthRouter);
+v1Router.use(authRouter);
+v1Router.use(userRouter);
+v1Router.use(roleRouter);
+v1Router.use(organizationRouter);
+v1Router.use(positionRouter);
+v1Router.use(employeeRouter);
+v1Router.use(scheduleRouter);
+v1Router.use(attendanceRouter);
+v1Router.use(leaveRouter);
+v1Router.use(overtimeRouter);
+v1Router.use(approvalRouter);
+
+v1Router.use(auditRouter);
+v1Router.use(notificationRouter);
+v1Router.use(payrollRouter);
+v1Router.use(payslipRouter);
+v1Router.use(paymentRouter);
+v1Router.use(paymentOpsRouter);
+v1Router.use(accountingRouter);
+v1Router.use(reportingRouter);

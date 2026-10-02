@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+
+# M6 numeric-ID rehearsal runtime env (contains DB credentials)
+.env.*
+!.env.example

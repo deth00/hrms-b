@@ -1,0 +1,3306 @@
+// Phase 1 — authentication, application users, roles, and permissions.
+// Phase 2 — organization structure + position master data (Company,
+// Branch, Department, Division, Unit, PositionLevel, Position).
+// Still no Employee model — a Position/Unit/etc. is not yet held by
+// anyone; that link is Phase 3+.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model User {
+  id           Int        @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId     String?    @unique @map("legacy_id")
+  username     String     @unique
+  email        String?    @unique
+  displayName  String     @map("display_name")
+  passwordHash String     @map("password_hash")
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  roles              UserRole[]
+  sessions           Session[]
+  employee           Employee?
+  assignmentsCreated EmployeeAssignmentHistory[]
+
+  schedulesCreated EmployeeScheduleAssignment[] @relation("ScheduleCreatedBy")
+
+  punchesCreated AttendancePunch[] @relation("PunchCreatedBy")
+
+  correctionsRequested AttendanceCorrectionRequest[]     @relation("CorrectionRequestedBy")
+  correctionsReviewed  AttendanceCorrectionRequest[]     @relation("CorrectionReviewedBy")
+  correctionsApplied   AttendanceCorrectionApplication[] @relation("CorrectionAppliedBy")
+  leaveBalancesCreated LeaveBalance[]                    @relation("LeaveBalanceCreatedBy")
+  leaveBalancesUpdated LeaveBalance[]                    @relation("LeaveBalanceUpdatedBy")
+  leaveAdjustments     LeaveBalanceAdjustment[]          @relation("LeaveAdjustmentCreatedBy")
+  leaveRequested       LeaveRequest[]                    @relation("LeaveRequestedBy")
+  leaveReviewed        LeaveRequest[]                    @relation("LeaveReviewedBy")
+  overtimeRequested    OvertimeRequest[]                 @relation("OvertimeRequestedBy")
+  overtimeReviewed     OvertimeRequest[]                 @relation("OvertimeReviewedBy")
+  approvalSteps        ApprovalWorkflowStep[]            @relation("ApprovalStepUser")
+  approvalRequested    ApprovalInstance[]                @relation("ApprovalRequester")
+  approvalActed        ApprovalStepInstance[]            @relation("ApprovalStepActedBy")
+  auditEvents          AuditEvent[]                      @relation("AuditActor")
+  notifications        Notification[]
+  savedReportFilters   SavedReportFilter[]
+
+  compensationsCreated     EmployeeCompensation[]          @relation("CompensationCreatedBy")
+  recurringPayCreated      EmployeeRecurringPayComponent[] @relation("RecurringPayCreatedBy")
+  payrollPeriodsCreated    PayrollPeriod[]                 @relation("PayrollPeriodCreatedBy")
+  payrollRunsCreated       PayrollRun[]                    @relation("PayrollRunCreatedBy")
+  payrollRunsCalculated    PayrollRun[]                    @relation("PayrollRunCalculatedBy")
+  payrollRunsFinalized     PayrollRun[]                    @relation("PayrollRunFinalizedBy")
+  payrollRunsSubmitted     PayrollRun[]                    @relation("PayrollRunSubmittedBy")
+  payrollRunsApproved      PayrollRun[]                    @relation("PayrollRunApprovedBy")
+  payslipsIssued           Payslip[]                       @relation("PayslipIssuedBy")
+  payrollAdjustments       PayrollManualAdjustment[]       @relation("PayrollAdjustmentCreatedBy")
+  payrollSchedulesCreated  PayrollSchedule[]               @relation("PayrollScheduleCreatedBy")
+  payrollRuleSetsCreated   PayrollRuleSet[]                @relation("PayrollRuleSetCreatedBy")
+  approvalCandidates       ApprovalStepCandidate[]         @relation("ApprovalCandidate")
+  statutoryRuleSetsCreated PayrollStatutoryRuleSet[]       @relation("StatutoryRuleSetCreatedBy")
+  statutoryProfilesCreated EmployeeStatutoryProfile[]      @relation("StatutoryProfileCreatedBy")
+  statutoryProfilesUpdated EmployeeStatutoryProfile[]      @relation("StatutoryProfileUpdatedBy")
+
+  // Phase 14 - payment preparation
+  paymentProfilesCreated  EmployeePaymentProfile[]       @relation("PaymentProfileCreatedBy")
+  paymentProfilesUpdated  EmployeePaymentProfile[]       @relation("PaymentProfileUpdatedBy")
+  bankAccountsCreated     EmployeeBankAccount[]          @relation("BankAccountCreatedBy")
+  bankAccountsUpdated     EmployeeBankAccount[]          @relation("BankAccountUpdatedBy")
+  paymentBatchesCreated   PayrollPaymentBatch[]          @relation("PaymentBatchCreatedBy")
+  paymentBatchesValidated PayrollPaymentBatch[]          @relation("PaymentBatchValidatedBy")
+  paymentBatchesExported  PayrollPaymentBatch[]          @relation("PaymentBatchExportedBy")
+  paymentBatchesConfirmed PayrollPaymentBatch[]          @relation("PaymentBatchConfirmedBy")
+  paymentBatchesCancelled PayrollPaymentBatch[]          @relation("PaymentBatchCancelledBy")
+  paymentItemsConfirmed   PayrollPaymentItem[]           @relation("PaymentItemConfirmedBy")
+  bankExportProfiles      BankExportProfile[]            @relation("BankExportProfileCreatedBy")
+  paymentBatchExports     PaymentBatchExport[]           @relation("PaymentBatchExportCreatedBy")
+  // Phase 15
+  paymentItemsReconciled  PayrollPaymentItem[]           @relation("PaymentItemReconciledBy")
+  paymentReversals        PayrollPaymentReversal[]       @relation("PaymentReversedBy")
+  reconciliationProfiles  PaymentReconciliationProfile[] @relation("ReconciliationProfileCreatedBy")
+  reconciliationsImported PaymentReconciliationImport[]  @relation("ReconciliationImportedBy")
+  reconciliationsApplied  PaymentReconciliationImport[]  @relation("ReconciliationAppliedBy")
+  reconciliationsCancel   PaymentReconciliationImport[]  @relation("ReconciliationCancelledBy")
+  reconciliationRowsIgn   PaymentReconciliationRow[]     @relation("ReconciliationRowIgnoredBy")
+  reconciliationRowsMatch PaymentReconciliationRow[]     @relation("ReconciliationRowMatchedBy")
+
+  @@map("users")
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId    String?  @unique @map("legacy_id")
+  code        String   @unique
+  name        String
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users         UserRole[]
+  permissions   RolePermission[]
+  approvalSteps ApprovalWorkflowStep[] @relation("ApprovalStepRole")
+
+  @@map("roles")
+}
+
+model Permission {
+  id          Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId    String?  @unique @map("legacy_id")
+  code        String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId       Int      @map("user_id")
+  userIdLegacy String?  @map("user_id_legacy") @ignore
+  roleId       Int      @map("role_id")
+  roleIdLegacy String?  @map("role_id_legacy") @ignore
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId             Int      @map("role_id")
+  roleIdLegacy       String?  @map("role_id_legacy") @ignore
+  permissionId       Int      @map("permission_id")
+  permissionIdLegacy String?  @map("permission_id_legacy") @ignore
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model Session {
+  id           Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId     String?   @unique @map("legacy_id")
+  userId       Int       @map("user_id")
+  userIdLegacy String?   @map("user_id_legacy") @ignore
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at")
+  lastSeenAt   DateTime  @default(now()) @map("last_seen_at")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Phase 2 — Organization structure + position master data
+// ─────────────────────────────────────────────────────────────────
+
+enum OrgStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Company {
+  id                 Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId           String?   @unique @map("legacy_id")
+  code               String    @unique
+  nameLao            String    @map("name_lao")
+  nameEnglish        String?   @map("name_english")
+  taxNumber          String?   @map("tax_number")
+  registrationNumber String?   @map("registration_number")
+  phone              String?
+  email              String?
+  address            String?
+  province           String?
+  district           String?
+  village            String?
+  logoUrl            String?   @map("logo_url")
+  status             OrgStatus @default(ACTIVE)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  branches          Branch[]
+  departments       Department[]
+  positionLevels    PositionLevel[]
+  positions         Position[]
+  employmentTypes   EmploymentType[]
+  employees         Employee[]
+  assignmentHistory EmployeeAssignmentHistory[]
+
+  shifts   Shift[]
+  holidays Holiday[]
+
+  workLocations WorkLocation[]
+
+  attendancePolicy  AttendancePolicy?
+  leaveTypes        LeaveType[]
+  overtimePolicy    OvertimePolicy?
+  approvalWorkflows ApprovalWorkflow[]
+  auditEvents       AuditEvent[]
+
+  payrollSettings          PayrollSettings?
+  payComponents            PayComponent[]
+  payrollPeriods           PayrollPeriod[]
+  payrollRuns              PayrollRun[]
+  payrollSchedules         PayrollSchedule[]
+  payrollRuleSets          PayrollRuleSet[]
+  statutoryRuleSets        PayrollStatutoryRuleSet[]
+  payslips                 Payslip[]
+  bankAccounts             EmployeeBankAccount[]
+  paymentBatches           PayrollPaymentBatch[]
+  bankExportProfiles       BankExportProfile[]
+  // Phase 15
+  paymentReversals         PayrollPaymentReversal[]
+  reconciliationProfiles   PaymentReconciliationProfile[]
+  reconciliationImports    PaymentReconciliationImport[]
+  // Phase 16
+  glAccounts               GLAccount[]
+  accountingRuleSets       PayrollAccountingRuleSet[]
+  payrollJournals          PayrollJournal[]
+  accountingExportProfiles AccountingExportProfile[]
+
+  @@map("companies")
+}
+
+model Branch {
+  id              Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId        String?   @unique @map("legacy_id")
+  companyId       Int       @map("company_id")
+  companyIdLegacy String?   @map("company_id_legacy") @ignore
+  code            String
+  nameLao         String    @map("name_lao")
+  nameEnglish     String?   @map("name_english")
+  phone           String?
+  email           String?
+  address         String?
+  province        String?
+  district        String?
+  village         String?
+  latitude        Float?
+  longitude       Float?
+  status          OrgStatus @default(ACTIVE)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  company           Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  departments       Department[]
+  employees         Employee[]
+  assignmentHistory EmployeeAssignmentHistory[]
+
+  workLocations WorkLocation[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("branches")
+}
+
+/// Branch is optional: a Department may sit directly under a Company, or
+/// under one of its Branches. Code is unique per Company (not per Branch)
+/// so a code unambiguously identifies one department across the whole
+/// company regardless of which branch — or none — it belongs to.
+model Department {
+  id              Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId        String?   @unique @map("legacy_id")
+  companyId       Int       @map("company_id")
+  companyIdLegacy String?   @map("company_id_legacy") @ignore
+  branchId        Int?      @map("branch_id")
+  branchIdLegacy  String?   @map("branch_id_legacy") @ignore
+  code            String
+  nameLao         String    @map("name_lao")
+  nameEnglish     String?   @map("name_english")
+  description     String?
+  status          OrgStatus @default(ACTIVE)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  company           Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch            Branch?                     @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  divisions         Division[]
+  units             Unit[]
+  employees         Employee[]
+  assignmentHistory EmployeeAssignmentHistory[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([branchId])
+  @@map("departments")
+}
+
+model Division {
+  id                 Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId           String?   @unique @map("legacy_id")
+  departmentId       Int       @map("department_id")
+  departmentIdLegacy String?   @map("department_id_legacy") @ignore
+  code               String
+  nameLao            String    @map("name_lao")
+  nameEnglish        String?   @map("name_english")
+  description        String?
+  status             OrgStatus @default(ACTIVE)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  department        Department                  @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  units             Unit[]
+  employees         Employee[]
+  assignmentHistory EmployeeAssignmentHistory[]
+
+  @@unique([departmentId, code])
+  @@index([departmentId])
+  @@map("divisions")
+}
+
+/// Division is optional: a Unit may sit directly under a Department, or
+/// under one of its Divisions. Code is unique per Department for the
+/// same reason as Department.code is unique per Company.
+model Unit {
+  id                 Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId           String?   @unique @map("legacy_id")
+  departmentId       Int       @map("department_id")
+  departmentIdLegacy String?   @map("department_id_legacy") @ignore
+  divisionId         Int?      @map("division_id")
+  divisionIdLegacy   String?   @map("division_id_legacy") @ignore
+  code               String
+  nameLao            String    @map("name_lao")
+  nameEnglish        String?   @map("name_english")
+  description        String?
+  status             OrgStatus @default(ACTIVE)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  department        Department                  @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  division          Division?                   @relation(fields: [divisionId], references: [id], onDelete: SetNull)
+  employees         Employee[]
+  assignmentHistory EmployeeAssignmentHistory[]
+
+  @@unique([departmentId, code])
+  @@index([departmentId])
+  @@index([divisionId])
+  @@map("units")
+}
+
+/// Master data only — no approval-routing behavior is attached to rank
+/// yet. Lower rank = higher in the org (1 = executive). Rank is unique
+/// per company so "rank 1" unambiguously means one level company-wide.
+model PositionLevel {
+  id              Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId        String?   @unique @map("legacy_id")
+  companyId       Int       @map("company_id")
+  companyIdLegacy String?   @map("company_id_legacy") @ignore
+  code            String
+  nameLao         String    @map("name_lao")
+  nameEnglish     String?   @map("name_english")
+  rank            Int
+  description     String?
+  status          OrgStatus @default(ACTIVE)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  positions Position[]
+
+  @@unique([companyId, code])
+  @@unique([companyId, rank])
+  @@index([companyId])
+  @@map("position_levels")
+}
+
+model Position {
+  id                    Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?   @unique @map("legacy_id")
+  companyId             Int       @map("company_id")
+  companyIdLegacy       String?   @map("company_id_legacy") @ignore
+  positionLevelId       Int?      @map("position_level_id")
+  positionLevelIdLegacy String?   @map("position_level_id_legacy") @ignore
+  code                  String
+  nameLao               String    @map("name_lao")
+  nameEnglish           String?   @map("name_english")
+  description           String?
+  status                OrgStatus @default(ACTIVE)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  company           Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  positionLevel     PositionLevel?              @relation(fields: [positionLevelId], references: [id], onDelete: SetNull)
+  employees         Employee[]
+  assignmentHistory EmployeeAssignmentHistory[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([positionLevelId])
+  @@map("positions")
+}
+
+// Phase 3 — Employee Management. `Employee` (an HR personnel record) is a
+// different concept from `User` (a login identity); they are linked by an
+// OPTIONAL one-to-one `Employee.userId`. No salary/payroll/attendance fields.
+
+enum EmploymentStatus {
+  ACTIVE
+  PROBATION
+  ON_LEAVE
+  SUSPENDED
+  RESIGNED
+  TERMINATED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum MaritalStatus {
+  SINGLE
+  MARRIED
+  DIVORCED
+  WIDOWED
+}
+
+model EmploymentType {
+  id              Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId        String?   @unique @map("legacy_id")
+  companyId       Int       @map("company_id")
+  companyIdLegacy String?   @map("company_id_legacy") @ignore
+  code            String
+  nameLao         String    @map("name_lao")
+  nameEnglish     String?   @map("name_english")
+  description     String?
+  status          OrgStatus @default(ACTIVE)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  company   Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employees Employee[]
+  history   EmployeeAssignmentHistory[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("employment_types")
+}
+
+model Employee {
+  id           Int     @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId     String? @unique @map("legacy_id")
+  employeeCode String  @unique @map("employee_code")
+  userId       Int?    @unique @map("user_id")
+  userIdLegacy String? @map("user_id_legacy") @ignore
+
+  title            String?
+  firstNameLao     String         @map("first_name_lao")
+  lastNameLao      String         @map("last_name_lao")
+  firstNameEnglish String?        @map("first_name_english")
+  lastNameEnglish  String?        @map("last_name_english")
+  nickname         String?
+  gender           Gender?
+  dateOfBirth      DateTime?      @map("date_of_birth") @db.Date
+  nationalId       String?        @map("national_id")
+  passportNumber   String?        @map("passport_number")
+  maritalStatus    MaritalStatus? @map("marital_status")
+
+  phone         String?
+  personalEmail String? @map("personal_email")
+  workEmail     String? @map("work_email")
+  address       String?
+  province      String?
+  district      String?
+  village       String?
+
+  startDate              DateTime         @map("start_date") @db.Date
+  probationEndDate       DateTime?        @map("probation_end_date") @db.Date
+  endDate                DateTime?        @map("end_date") @db.Date
+  employmentStatus       EmploymentStatus @default(ACTIVE) @map("employment_status")
+  employmentTypeId       Int?             @map("employment_type_id")
+  employmentTypeIdLegacy String?          @map("employment_type_id_legacy") @ignore
+
+  // Current assignment snapshot — the source of truth for history is EmployeeAssignmentHistory.
+  companyId               Int     @map("company_id")
+  companyIdLegacy         String? @map("company_id_legacy") @ignore
+  branchId                Int?    @map("branch_id")
+  branchIdLegacy          String? @map("branch_id_legacy") @ignore
+  departmentId            Int?    @map("department_id")
+  departmentIdLegacy      String? @map("department_id_legacy") @ignore
+  divisionId              Int?    @map("division_id")
+  divisionIdLegacy        String? @map("division_id_legacy") @ignore
+  unitId                  Int?    @map("unit_id")
+  unitIdLegacy            String? @map("unit_id_legacy") @ignore
+  positionId              Int?    @map("position_id")
+  positionIdLegacy        String? @map("position_id_legacy") @ignore
+  managerEmployeeId       Int?    @map("manager_employee_id")
+  managerEmployeeIdLegacy String? @map("manager_employee_id_legacy") @ignore
+
+  avatarUrl String?  @map("avatar_url")
+  note      String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company        Company         @relation(fields: [companyId], references: [id])
+  branch         Branch?         @relation(fields: [branchId], references: [id])
+  department     Department?     @relation(fields: [departmentId], references: [id])
+  division       Division?       @relation(fields: [divisionId], references: [id])
+  unit           Unit?           @relation(fields: [unitId], references: [id])
+  position       Position?       @relation(fields: [positionId], references: [id])
+  employmentType EmploymentType? @relation(fields: [employmentTypeId], references: [id])
+  manager        Employee?       @relation("EmployeeManager", fields: [managerEmployeeId], references: [id], onDelete: SetNull)
+  directReports  Employee[]      @relation("EmployeeManager")
+
+  history          EmployeeAssignmentHistory[] @relation("HistoryEmployee")
+  managedInHistory EmployeeAssignmentHistory[] @relation("HistoryManager")
+
+  scheduleAssignments EmployeeScheduleAssignment[]
+
+  attendanceRecords AttendanceRecord[]
+  attendancePunches AttendancePunch[]
+
+  correctionRequests AttendanceCorrectionRequest[]
+
+  leaveBalances     LeaveBalance[]
+  leaveRequests     LeaveRequest[]
+  leaveRequestDays  LeaveRequestDay[]
+  overtimeRequests  OvertimeRequest[]
+  approvalInstances ApprovalInstance[]
+  auditEvents       AuditEvent[]
+
+  compensations              EmployeeCompensation[]
+  recurringPay               EmployeeRecurringPayComponent[]
+  payrollResults             PayrollEmployeeResult[]
+  payrollAdjustments         PayrollManualAdjustment[]
+  payrollScheduleMemberships PayrollScheduleEmployee[]
+  statutoryProfile           EmployeeStatutoryProfile?
+  payslips                   Payslip[]
+  paymentProfile             EmployeePaymentProfile?
+  bankAccounts               EmployeeBankAccount[]
+  paymentItems               PayrollPaymentItem[]
+
+  @@index([companyId])
+  @@index([branchId])
+  @@index([departmentId])
+  @@index([divisionId])
+  @@index([unitId])
+  @@index([positionId])
+  @@index([managerEmployeeId])
+  @@index([employmentTypeId])
+  @@index([employmentStatus])
+  @@index([firstNameLao, lastNameLao])
+  @@map("employees")
+}
+
+model EmployeeAssignmentHistory {
+  id               Int     @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId         String? @unique @map("legacy_id")
+  employeeId       Int     @map("employee_id")
+  employeeIdLegacy String? @map("employee_id_legacy") @ignore
+
+  companyId               Int     @map("company_id")
+  companyIdLegacy         String? @map("company_id_legacy") @ignore
+  branchId                Int?    @map("branch_id")
+  branchIdLegacy          String? @map("branch_id_legacy") @ignore
+  departmentId            Int?    @map("department_id")
+  departmentIdLegacy      String? @map("department_id_legacy") @ignore
+  divisionId              Int?    @map("division_id")
+  divisionIdLegacy        String? @map("division_id_legacy") @ignore
+  unitId                  Int?    @map("unit_id")
+  unitIdLegacy            String? @map("unit_id_legacy") @ignore
+  positionId              Int?    @map("position_id")
+  positionIdLegacy        String? @map("position_id_legacy") @ignore
+  managerEmployeeId       Int?    @map("manager_employee_id")
+  managerEmployeeIdLegacy String? @map("manager_employee_id_legacy") @ignore
+  employmentTypeId        Int?    @map("employment_type_id")
+  employmentTypeIdLegacy  String? @map("employment_type_id_legacy") @ignore
+
+  effectiveFrom         DateTime  @map("effective_from") @db.Date
+  effectiveTo           DateTime? @map("effective_to") @db.Date
+  reason                String?
+  createdByUserId       Int?      @map("created_by_user_id")
+  createdByUserIdLegacy String?   @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  employee       Employee        @relation("HistoryEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  company        Company         @relation(fields: [companyId], references: [id])
+  branch         Branch?         @relation(fields: [branchId], references: [id])
+  department     Department?     @relation(fields: [departmentId], references: [id])
+  division       Division?       @relation(fields: [divisionId], references: [id])
+  unit           Unit?           @relation(fields: [unitId], references: [id])
+  position       Position?       @relation(fields: [positionId], references: [id])
+  manager        Employee?       @relation("HistoryManager", fields: [managerEmployeeId], references: [id], onDelete: SetNull)
+  employmentType EmploymentType? @relation(fields: [employmentTypeId], references: [id])
+  createdBy      User?           @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, effectiveFrom])
+  @@index([companyId])
+  @@map("employee_assignment_history")
+}
+
+// Phase 4 — Shift, Holiday and Employee Work Schedule foundation. Configuration only:
+// there is NO attendance/check-in data yet. Shift times are stored as "HH:mm" strings
+// (wall-clock times in Asia/Vientiane, UTC+7) — never as timezone-shifted timestamps.
+
+enum ShiftType {
+  FIXED
+  FLEXIBLE
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum HolidayType {
+  PUBLIC
+  COMPANY
+}
+
+model Shift {
+  id              Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId        String?   @unique @map("legacy_id")
+  companyId       Int       @map("company_id")
+  companyIdLegacy String?   @map("company_id_legacy") @ignore
+  code            String
+  nameLao         String    @map("name_lao")
+  nameEnglish     String?   @map("name_english")
+  shiftType       ShiftType @default(FIXED) @map("shift_type")
+
+  startTime       String  @map("start_time") @db.VarChar(5)
+  endTime         String  @map("end_time") @db.VarChar(5)
+  crossesMidnight Boolean @default(false) @map("crosses_midnight")
+
+  breakMinutes           Int  @default(0) @map("break_minutes")
+  lateGraceMinutes       Int  @default(0) @map("late_grace_minutes")
+  earlyCheckInMinutes    Int? @map("early_check_in_minutes")
+  earlyLeaveGraceMinutes Int  @default(0) @map("early_leave_grace_minutes")
+  minimumWorkMinutes     Int? @map("minimum_work_minutes")
+
+  status      OrgStatus @default(ACTIVE)
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  company     Company                      @relation(fields: [companyId], references: [id])
+  workDays    ShiftWorkDay[]
+  assignments EmployeeScheduleAssignment[]
+
+  attendanceRecords AttendanceRecord[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("shifts")
+}
+
+model ShiftWorkDay {
+  id                   Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId             String?   @unique @map("legacy_id")
+  shiftId              Int       @map("shift_id")
+  shiftIdLegacy        String?   @map("shift_id_legacy") @ignore
+  dayOfWeek            DayOfWeek @map("day_of_week")
+  isWorkingDay         Boolean   @default(true) @map("is_working_day")
+  startTimeOverride    String?   @map("start_time_override") @db.VarChar(5)
+  endTimeOverride      String?   @map("end_time_override") @db.VarChar(5)
+  breakMinutesOverride Int?      @map("break_minutes_override")
+
+  shift Shift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftId, dayOfWeek])
+  @@map("shift_work_days")
+}
+
+model Holiday {
+  id              Int         @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId        String?     @unique @map("legacy_id")
+  companyId       Int         @map("company_id")
+  companyIdLegacy String?     @map("company_id_legacy") @ignore
+  nameLao         String      @map("name_lao")
+  nameEnglish     String?     @map("name_english")
+  holidayDate     DateTime    @map("holiday_date") @db.Date
+  type            HolidayType @default(PUBLIC)
+  isPaid          Boolean     @default(true) @map("is_paid")
+  description     String?
+  status          OrgStatus   @default(ACTIVE)
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  attendanceRecords AttendanceRecord[]
+
+  @@unique([companyId, holidayDate, nameLao])
+  @@index([companyId, holidayDate])
+  @@map("holidays")
+}
+
+model EmployeeScheduleAssignment {
+  id                    Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?   @unique @map("legacy_id")
+  employeeId            Int       @map("employee_id")
+  employeeIdLegacy      String?   @map("employee_id_legacy") @ignore
+  shiftId               Int       @map("shift_id")
+  shiftIdLegacy         String?   @map("shift_id_legacy") @ignore
+  effectiveFrom         DateTime  @map("effective_from") @db.Date
+  effectiveTo           DateTime? @map("effective_to") @db.Date
+  reason                String?
+  createdByUserId       Int?      @map("created_by_user_id")
+  createdByUserIdLegacy String?   @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  employee  Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift     Shift    @relation(fields: [shiftId], references: [id])
+  createdBy User?    @relation("ScheduleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, effectiveFrom])
+  @@index([shiftId])
+  @@map("employee_schedule_assignments")
+}
+
+// Phase 5 — Check-in / Check-out + attendance punch core. Two layers: AttendanceRecord (one
+// summarized row per employee per scheduled WORK date, holding a schedule snapshot) and
+// AttendancePunch (immutable raw events — never updated or deleted through the API).
+// Punch instants are UTC, taken from the SERVER clock; Laos display is a presentation concern.
+
+enum AttendanceStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  MISSING_CHECK_OUT
+}
+
+enum PunchType {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum PunchSource {
+  WEB
+  MOBILE_WEB
+}
+
+model WorkLocation {
+  id              Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId        String?   @unique @map("legacy_id")
+  companyId       Int       @map("company_id")
+  companyIdLegacy String?   @map("company_id_legacy") @ignore
+  branchId        Int?      @map("branch_id")
+  branchIdLegacy  String?   @map("branch_id_legacy") @ignore
+  code            String
+  nameLao         String    @map("name_lao")
+  nameEnglish     String?   @map("name_english")
+  latitude        Float
+  longitude       Float
+  radiusMeters    Int       @map("radius_meters")
+  requireGps      Boolean   @default(false) @map("require_gps")
+  status          OrgStatus @default(ACTIVE)
+  description     String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  company Company           @relation(fields: [companyId], references: [id])
+  branch  Branch?           @relation(fields: [branchId], references: [id])
+  punches AttendancePunch[]
+
+  @@unique([companyId, code])
+  @@index([companyId, branchId])
+  @@map("work_locations")
+}
+
+model AttendanceRecord {
+  id               Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId         String?  @unique @map("legacy_id")
+  employeeId       Int      @map("employee_id")
+  employeeIdLegacy String?  @map("employee_id_legacy") @ignore
+  /// The scheduled WORK day (an overnight shift's check-out on the next morning still belongs to it).
+  workDate         DateTime @map("work_date") @db.Date
+
+  scheduleAssignmentId            Int?    @map("schedule_assignment_id")
+  scheduleAssignmentIdLegacy      String? @map("schedule_assignment_id_legacy") @ignore
+  shiftId                         Int?    @map("shift_id")
+  shiftIdLegacy                   String? @map("shift_id_legacy") @ignore
+  scheduledStartTime              String? @map("scheduled_start_time") @db.VarChar(5)
+  scheduledEndTime                String? @map("scheduled_end_time") @db.VarChar(5)
+  scheduledBreakMinutes           Int?    @map("scheduled_break_minutes")
+  scheduledCrossesMidnight        Boolean @default(false) @map("scheduled_crosses_midnight")
+  /// Grace values are snapshotted too, so editing the Shift never changes historical Late/Early.
+  scheduledLateGraceMinutes       Int?    @map("scheduled_late_grace_minutes")
+  scheduledEarlyLeaveGraceMinutes Int?    @map("scheduled_early_leave_grace_minutes")
+
+  // ---- EFFECTIVE / CALCULATED (cache). Raw facts stay in firstCheckInAt / lastCheckOutAt + punches. ----
+  effectiveCheckInAt   DateTime?          @map("effective_check_in_at") @db.DateTime(3)
+  effectiveCheckOutAt  DateTime?          @map("effective_check_out_at") @db.DateTime(3)
+  isCorrected          Boolean            @default(false) @map("is_corrected")
+  scheduledWorkMinutes Int?               @map("scheduled_work_minutes")
+  workedMinutes        Int?               @map("worked_minutes")
+  arrivalDelayMinutes  Int?               @map("arrival_delay_minutes")
+  lateMinutes          Int?               @map("late_minutes")
+  earlyLeaveMinutes    Int?               @map("early_leave_minutes")
+  calculationStatus    CalculationStatus? @map("calculation_status")
+  calculatedAt         DateTime?          @map("calculated_at") @db.DateTime(3)
+  /// 0 = never calculated; 1 = Phase 6 formulas.
+  calculationVersion   Int                @default(0) @map("calculation_version")
+
+  firstCheckInAt DateTime? @map("first_check_in_at") @db.DateTime(3)
+  lastCheckOutAt DateTime? @map("last_check_out_at") @db.DateTime(3)
+
+  /// Stored: IN_PROGRESS | COMPLETED. NOT_STARTED / MISSING_CHECK_OUT are derived when presented.
+  status          AttendanceStatus @default(NOT_STARTED)
+  isWorkingDay    Boolean          @default(true) @map("is_working_day")
+  isHoliday       Boolean          @default(false) @map("is_holiday")
+  holidayId       Int?             @map("holiday_id")
+  holidayIdLegacy String?          @map("holiday_id_legacy") @ignore
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  employee               Employee                          @relation(fields: [employeeId], references: [id])
+  shift                  Shift?                            @relation(fields: [shiftId], references: [id])
+  holiday                Holiday?                          @relation(fields: [holidayId], references: [id])
+  punches                AttendancePunch[]
+  correctionRequests     AttendanceCorrectionRequest[]
+  correctionApplications AttendanceCorrectionApplication[]
+
+  @@unique([employeeId, workDate])
+  @@index([workDate])
+  @@index([employeeId, status])
+  @@map("attendance_records")
+}
+
+model AttendancePunch {
+  id                       Int         @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                 String?     @unique @map("legacy_id")
+  attendanceRecordId       Int         @map("attendance_record_id")
+  attendanceRecordIdLegacy String?     @map("attendance_record_id_legacy") @ignore
+  employeeId               Int         @map("employee_id")
+  employeeIdLegacy         String?     @map("employee_id_legacy") @ignore
+  type                     PunchType
+  punchedAt                DateTime    @map("punched_at") @db.DateTime(3)
+  source                   PunchSource
+
+  latitude             Float?
+  longitude            Float?
+  accuracyMeters       Float?  @map("accuracy_meters")
+  workLocationId       Int?    @map("work_location_id")
+  workLocationIdLegacy String? @map("work_location_id_legacy") @ignore
+  /// Snapshot: distance to the applicable work location and its radius AT PUNCH TIME.
+  distanceMeters       Float?  @map("distance_meters")
+  locationRadiusMeters Int?    @map("location_radius_meters")
+
+  ipAddress             String?  @map("ip_address") @db.VarChar(64)
+  userAgent             String?  @map("user_agent") @db.VarChar(255)
+  createdByUserId       Int      @map("created_by_user_id")
+  createdByUserIdLegacy String?  @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  record       AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
+  employee     Employee         @relation(fields: [employeeId], references: [id])
+  workLocation WorkLocation?    @relation(fields: [workLocationId], references: [id])
+  createdBy    User             @relation("PunchCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([attendanceRecordId, punchedAt])
+  @@index([employeeId, punchedAt])
+  @@map("attendance_punches")
+}
+
+// Phase 6 — attendance rules, calculation and corrections. Corrections NEVER touch AttendancePunch:
+// an approved request produces an immutable AttendanceCorrectionApplication (the "effective overlay")
+// and the record's cached effective/calculated fields are recalculated from it.
+
+enum CalculationStatus {
+  PRESENT
+  LATE
+  EARLY_LEAVE
+  LATE_AND_EARLY
+  INCOMPLETE
+}
+
+enum CorrectionType {
+  MISSING_CHECK_IN
+  MISSING_CHECK_OUT
+  TIME_ADJUSTMENT
+  MISSING_BOTH
+}
+
+enum CorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model AttendancePolicy {
+  id                          Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                    String?   @unique @map("legacy_id")
+  companyId                   Int       @unique @map("company_id")
+  companyIdLegacy             String?   @map("company_id_legacy") @ignore
+  deductScheduledBreak        Boolean   @default(true) @map("deduct_scheduled_break")
+  missingCheckOutGraceMinutes Int       @default(240) @map("missing_check_out_grace_minutes")
+  allowEmployeeCorrection     Boolean   @default(true) @map("allow_employee_correction")
+  correctionRequestWindowDays Int       @default(30) @map("correction_request_window_days")
+  status                      OrgStatus @default(ACTIVE)
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("attendance_policies")
+}
+
+model AttendanceCorrectionRequest {
+  id                       Int              @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                 String?          @unique @map("legacy_id")
+  employeeId               Int              @map("employee_id")
+  employeeIdLegacy         String?          @map("employee_id_legacy") @ignore
+  attendanceRecordId       Int?             @map("attendance_record_id")
+  attendanceRecordIdLegacy String?          @map("attendance_record_id_legacy") @ignore
+  workDate                 DateTime         @map("work_date") @db.Date
+  type                     CorrectionType
+  requestedCheckInAt       DateTime?        @map("requested_check_in_at") @db.DateTime(3)
+  requestedCheckOutAt      DateTime?        @map("requested_check_out_at") @db.DateTime(3)
+  reason                   String           @db.Text
+  status                   CorrectionStatus @default(PENDING)
+  /// "employeeId:YYYY-MM-DD" while PENDING, NULL otherwise — a unique key enforcing one pending request per employee/day.
+  pendingKey               String?          @unique @map("pending_key")
+
+  requestedByUserId       Int       @map("requested_by_user_id")
+  requestedByUserIdLegacy String?   @map("requested_by_user_id_legacy") @ignore
+  reviewedByUserId        Int?      @map("reviewed_by_user_id")
+  reviewedByUserIdLegacy  String?   @map("reviewed_by_user_id_legacy") @ignore
+  reviewedAt              DateTime? @map("reviewed_at") @db.DateTime(3)
+  reviewNote              String?   @map("review_note") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  employee    Employee                         @relation(fields: [employeeId], references: [id])
+  record      AttendanceRecord?                @relation(fields: [attendanceRecordId], references: [id])
+  requestedBy User                             @relation("CorrectionRequestedBy", fields: [requestedByUserId], references: [id])
+  reviewedBy  User?                            @relation("CorrectionReviewedBy", fields: [reviewedByUserId], references: [id])
+  application AttendanceCorrectionApplication?
+
+  @@index([employeeId, workDate])
+  @@index([status, createdAt])
+  @@map("attendance_correction_requests")
+}
+
+model AttendanceCorrectionApplication {
+  id                        Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                  String?   @unique @map("legacy_id")
+  correctionRequestId       Int       @unique @map("correction_request_id")
+  correctionRequestIdLegacy String?   @map("correction_request_id_legacy") @ignore
+  attendanceRecordId        Int       @map("attendance_record_id")
+  attendanceRecordIdLegacy  String?   @map("attendance_record_id_legacy") @ignore
+  effectiveCheckInAt        DateTime? @map("effective_check_in_at") @db.DateTime(3)
+  effectiveCheckOutAt       DateTime? @map("effective_check_out_at") @db.DateTime(3)
+  appliedByUserId           Int       @map("applied_by_user_id")
+  appliedByUserIdLegacy     String?   @map("applied_by_user_id_legacy") @ignore
+  appliedAt                 DateTime  @default(now()) @map("applied_at") @db.DateTime(3)
+
+  request   AttendanceCorrectionRequest @relation(fields: [correctionRequestId], references: [id])
+  record    AttendanceRecord            @relation(fields: [attendanceRecordId], references: [id])
+  appliedBy User                        @relation("CorrectionAppliedBy", fields: [appliedByUserId], references: [id])
+
+  @@index([attendanceRecordId, appliedAt])
+  @@map("attendance_correction_applications")
+}
+
+// ============================================================================================
+// Phase 7 — Leave management (full-day only; dayValue is a Decimal so half-day can come later)
+// ============================================================================================
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeaveType {
+  id                     Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId               String?   @unique @map("legacy_id")
+  companyId              Int       @map("company_id")
+  companyIdLegacy        String?   @map("company_id_legacy") @ignore
+  code                   String
+  nameLao                String    @map("name_lao")
+  nameEnglish            String?   @map("name_english")
+  isPaid                 Boolean   @default(true) @map("is_paid")
+  requiresBalance        Boolean   @default(true) @map("requires_balance")
+  defaultEntitlementDays Decimal?  @map("default_entitlement_days") @db.Decimal(6, 2)
+  minNoticeDays          Int       @default(0) @map("min_notice_days")
+  maxConsecutiveDays     Int?      @map("max_consecutive_days")
+  description            String?
+  status                 OrgStatus @default(ACTIVE)
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  company  Company        @relation(fields: [companyId], references: [id])
+  balances LeaveBalance[]
+  requests LeaveRequest[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@map("leave_types")
+}
+
+model LeaveBalance {
+  id                    Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?  @unique @map("legacy_id")
+  employeeId            Int      @map("employee_id")
+  employeeIdLegacy      String?  @map("employee_id_legacy") @ignore
+  leaveTypeId           Int      @map("leave_type_id")
+  leaveTypeIdLegacy     String?  @map("leave_type_id_legacy") @ignore
+  year                  Int
+  entitlementDays       Decimal  @default(0) @map("entitlement_days") @db.Decimal(6, 2)
+  carriedForwardDays    Decimal  @default(0) @map("carried_forward_days") @db.Decimal(6, 2)
+  createdByUserId       Int?     @map("created_by_user_id")
+  createdByUserIdLegacy String?  @map("created_by_user_id_legacy") @ignore
+  updatedByUserId       Int?     @map("updated_by_user_id")
+  updatedByUserIdLegacy String?  @map("updated_by_user_id_legacy") @ignore
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  employee    Employee                 @relation(fields: [employeeId], references: [id])
+  leaveType   LeaveType                @relation(fields: [leaveTypeId], references: [id])
+  createdBy   User?                    @relation("LeaveBalanceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy   User?                    @relation("LeaveBalanceUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  adjustments LeaveBalanceAdjustment[]
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@index([leaveTypeId])
+  @@map("leave_balances")
+}
+
+/// Immutable audit trail of manual balance changes (never updated or deleted).
+model LeaveBalanceAdjustment {
+  id                    Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?  @unique @map("legacy_id")
+  leaveBalanceId        Int      @map("leave_balance_id")
+  leaveBalanceIdLegacy  String?  @map("leave_balance_id_legacy") @ignore
+  days                  Decimal  @db.Decimal(6, 2)
+  reason                String   @db.Text
+  createdByUserId       Int      @map("created_by_user_id")
+  createdByUserIdLegacy String?  @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  leaveBalance LeaveBalance @relation(fields: [leaveBalanceId], references: [id])
+  createdBy    User         @relation("LeaveAdjustmentCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([leaveBalanceId])
+  @@map("leave_balance_adjustments")
+}
+
+model LeaveRequest {
+  id                      Int                @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                String?            @unique @map("legacy_id")
+  employeeId              Int                @map("employee_id")
+  employeeIdLegacy        String?            @map("employee_id_legacy") @ignore
+  leaveTypeId             Int                @map("leave_type_id")
+  leaveTypeIdLegacy       String?            @map("leave_type_id_legacy") @ignore
+  startDate               DateTime           @map("start_date") @db.Date
+  endDate                 DateTime           @map("end_date") @db.Date
+  totalDays               Decimal            @map("total_days") @db.Decimal(6, 2)
+  reason                  String             @db.Text
+  status                  LeaveRequestStatus @default(PENDING)
+  requestedByUserId       Int                @map("requested_by_user_id")
+  requestedByUserIdLegacy String?            @map("requested_by_user_id_legacy") @ignore
+  reviewedByUserId        Int?               @map("reviewed_by_user_id")
+  reviewedByUserIdLegacy  String?            @map("reviewed_by_user_id_legacy") @ignore
+  reviewedAt              DateTime?          @map("reviewed_at")
+  reviewNote              String?            @map("review_note") @db.Text
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+
+  employee    Employee          @relation(fields: [employeeId], references: [id])
+  leaveType   LeaveType         @relation(fields: [leaveTypeId], references: [id])
+  requestedBy User              @relation("LeaveRequestedBy", fields: [requestedByUserId], references: [id])
+  reviewedBy  User?             @relation("LeaveReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  days        LeaveRequestDay[]
+
+  @@index([employeeId, status])
+  @@index([status, createdAt])
+  @@index([leaveTypeId])
+  @@map("leave_requests")
+}
+
+/// The exact charged working dates of a request (schedule-derived, holiday/off-day excluded).
+model LeaveRequestDay {
+  id                         Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                   String?  @unique @map("legacy_id")
+  leaveRequestId             Int      @map("leave_request_id")
+  leaveRequestIdLegacy       String?  @map("leave_request_id_legacy") @ignore
+  employeeId                 Int      @map("employee_id")
+  employeeIdLegacy           String?  @map("employee_id_legacy") @ignore
+  leaveDate                  DateTime @map("leave_date") @db.Date
+  dayValue                   Decimal  @default(1) @map("day_value") @db.Decimal(4, 2)
+  /// "<employeeId>:<YYYY-MM-DD>" while the parent request is PENDING/APPROVED, NULL otherwise —
+  /// the unique index makes overlapping active leave impossible even under concurrent requests.
+  activeKey                  String?  @unique @map("active_key")
+  scheduleAssignmentId       Int?     @map("schedule_assignment_id")
+  scheduleAssignmentIdLegacy String?  @map("schedule_assignment_id_legacy") @ignore
+  shiftId                    Int?     @map("shift_id")
+  shiftIdLegacy              String?  @map("shift_id_legacy") @ignore
+  scheduledStartTime         String?  @map("scheduled_start_time")
+  scheduledEndTime           String?  @map("scheduled_end_time")
+  scheduledBreakMinutes      Int?     @map("scheduled_break_minutes")
+  scheduledCrossesMidnight   Boolean  @default(false) @map("scheduled_crosses_midnight")
+  createdAt                  DateTime @default(now()) @map("created_at")
+
+  leaveRequest LeaveRequest @relation(fields: [leaveRequestId], references: [id])
+  employee     Employee     @relation(fields: [employeeId], references: [id])
+
+  @@unique([leaveRequestId, leaveDate])
+  @@index([employeeId, leaveDate])
+  @@map("leave_request_days")
+}
+
+// ============================================================================================
+// Phase 8 — Overtime (OT) approval + actual approved-window minutes. NO money, NO rates.
+// ============================================================================================
+
+enum OvertimeType {
+  BEFORE_SHIFT
+  AFTER_SHIFT
+  OFF_DAY
+  HOLIDAY
+}
+
+enum OvertimeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// Approval status (above) and calculation status (below) are deliberately separate concepts.
+enum OvertimeCalculationStatus {
+  PENDING_ATTENDANCE
+  INCOMPLETE_ATTENDANCE
+  CALCULATED
+}
+
+model OvertimePolicy {
+  id                          Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                    String?   @unique @map("legacy_id")
+  companyId                   Int       @unique @map("company_id")
+  companyIdLegacy             String?   @map("company_id_legacy") @ignore
+  minimumRequestMinutes       Int       @default(30) @map("minimum_request_minutes")
+  maximumRequestMinutesPerDay Int       @default(480) @map("maximum_request_minutes_per_day")
+  allowBeforeShift            Boolean   @default(true) @map("allow_before_shift")
+  allowAfterShift             Boolean   @default(true) @map("allow_after_shift")
+  allowOffDay                 Boolean   @default(true) @map("allow_off_day")
+  allowHoliday                Boolean   @default(true) @map("allow_holiday")
+  checkInEarlyMinutes         Int       @default(60) @map("check_in_early_minutes")
+  status                      OrgStatus @default(ACTIVE)
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("overtime_policies")
+}
+
+model OvertimeRequest {
+  id               Int          @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId         String?      @unique @map("legacy_id")
+  employeeId       Int          @map("employee_id")
+  employeeIdLegacy String?      @map("employee_id_legacy") @ignore
+  /// The scheduled WORK date the OT belongs to (an after-shift OT past midnight keeps the shift's date).
+  workDate         DateTime     @map("work_date") @db.Date
+  type             OvertimeType
+
+  requestedStartAt DateTime @map("requested_start_at") @db.DateTime(3)
+  requestedEndAt   DateTime @map("requested_end_at") @db.DateTime(3)
+  plannedMinutes   Int      @map("planned_minutes")
+  reason           String   @db.Text
+
+  status                  OvertimeRequestStatus @default(PENDING)
+  requestedByUserId       Int                   @map("requested_by_user_id")
+  requestedByUserIdLegacy String?               @map("requested_by_user_id_legacy") @ignore
+  reviewedByUserId        Int?                  @map("reviewed_by_user_id")
+  reviewedByUserIdLegacy  String?               @map("reviewed_by_user_id_legacy") @ignore
+  reviewedAt              DateTime?             @map("reviewed_at")
+  reviewNote              String?               @map("review_note") @db.Text
+
+  // ---- schedule context SNAPSHOT at request time ----
+  scheduleAssignmentId       Int?      @map("schedule_assignment_id")
+  scheduleAssignmentIdLegacy String?   @map("schedule_assignment_id_legacy") @ignore
+  shiftId                    Int?      @map("shift_id")
+  shiftIdLegacy              String?   @map("shift_id_legacy") @ignore
+  regularScheduledStartAt    DateTime? @map("regular_scheduled_start_at") @db.DateTime(3)
+  regularScheduledEndAt      DateTime? @map("regular_scheduled_end_at") @db.DateTime(3)
+  isWorkingDay               Boolean   @map("is_working_day")
+  isHoliday                  Boolean   @default(false) @map("is_holiday")
+  holidayId                  Int?      @map("holiday_id")
+  holidayIdLegacy            String?   @map("holiday_id_legacy") @ignore
+
+  // ---- calculated cache (recomputed from effective attendance; see overtimeCalculation.service) ----
+  actualMinutes      Int?                      @map("actual_minutes")
+  eligibleMinutes    Int?                      @map("eligible_minutes")
+  calculationStatus  OvertimeCalculationStatus @default(PENDING_ATTENDANCE) @map("calculation_status")
+  calculatedAt       DateTime?                 @map("calculated_at") @db.DateTime(3)
+  calculationVersion Int                       @default(0) @map("calculation_version")
+
+  /// "<employeeId>:<YYYY-MM-DD>:<TYPE>" while PENDING/APPROVED, NULL after reject/cancel.
+  activeKey String? @unique @map("active_key")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  requestedBy User     @relation("OvertimeRequestedBy", fields: [requestedByUserId], references: [id])
+  reviewedBy  User?    @relation("OvertimeReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, workDate])
+  @@index([status, createdAt])
+  @@map("overtime_requests")
+}
+
+// ============================================================================================
+// Phase 9 — Generic sequential approval workflow engine.
+//   The engine decides WHO approves and in WHAT ORDER. The domain services (Leave, OT and
+//   Attendance Correction) still decide WHAT happens on final approval or rejection.
+//   Domain request status stays on the domain tables; workflow progress lives here as an
+//   immutable per-request SNAPSHOT.
+// ============================================================================================
+
+enum ApprovalTargetType {
+  LEAVE
+  OVERTIME
+  ATTENDANCE_CORRECTION
+  /// Phase 13 - a whole payroll run (no single employee: ApprovalInstance.employeeId is NULL)
+  PAYROLL_RUN
+}
+
+enum ApprovalApproverType {
+  MANAGER
+  ROLE
+  USER
+  PERMISSION
+}
+
+enum ApprovalInstanceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ApprovalStepStatus {
+  WAITING
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model ApprovalWorkflow {
+  id              Int                @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId        String?            @unique @map("legacy_id")
+  companyId       Int                @map("company_id")
+  companyIdLegacy String?            @map("company_id_legacy") @ignore
+  targetType      ApprovalTargetType @map("target_type")
+  code            String
+  nameLao         String             @map("name_lao")
+  nameEnglish     String?            @map("name_english")
+  description     String?
+  /// Bumped whenever the steps or the active state change. New instances store it, running ones never change.
+  version         Int                @default(1)
+  status          OrgStatus          @default(ACTIVE)
+  /// companyId:TARGET while ACTIVE, NULL otherwise - at most one ACTIVE workflow per company and target.
+  activeKey       String?            @unique @map("active_key")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  company   Company                @relation(fields: [companyId], references: [id])
+  steps     ApprovalWorkflowStep[]
+  instances ApprovalInstance[]
+
+  @@unique([companyId, code])
+  @@index([companyId, targetType])
+  @@map("approval_workflows")
+}
+
+model ApprovalWorkflowStep {
+  id               Int                  @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId         String?              @unique @map("legacy_id")
+  workflowId       Int                  @map("workflow_id")
+  workflowIdLegacy String?              @map("workflow_id_legacy") @ignore
+  stepOrder        Int                  @map("step_order")
+  nameLao          String               @map("name_lao")
+  nameEnglish      String?              @map("name_english")
+  approverType     ApprovalApproverType @map("approver_type")
+  managerLevel     Int?                 @map("manager_level")
+  roleId           Int?                 @map("role_id")
+  roleIdLegacy     String?              @map("role_id_legacy") @ignore
+  userId           Int?                 @map("user_id")
+  userIdLegacy     String?              @map("user_id_legacy") @ignore
+  permissionCode   String?              @map("permission_code")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+
+  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  role     Role?            @relation("ApprovalStepRole", fields: [roleId], references: [id])
+  user     User?            @relation("ApprovalStepUser", fields: [userId], references: [id])
+
+  @@unique([workflowId, stepOrder])
+  @@map("approval_workflow_steps")
+}
+
+model ApprovalInstance {
+  id                    Int                    @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?                @unique @map("legacy_id")
+  workflowId            Int?                   @map("workflow_id")
+  workflowIdLegacy      String?                @map("workflow_id_legacy") @ignore
+  workflowVersion       Int                    @map("workflow_version")
+  targetType            ApprovalTargetType     @map("target_type")
+  targetId              Int                    @map("target_id")
+  targetIdLegacy        String?                @map("target_id_legacy") @ignore
+  companyId             Int                    @map("company_id")
+  companyIdLegacy       String?                @map("company_id_legacy") @ignore
+  /// NULL only for targets that are not about one employee (PAYROLL_RUN)
+  employeeId            Int?                   @map("employee_id")
+  employeeIdLegacy      String?                @map("employee_id_legacy") @ignore
+  requesterUserId       Int                    @map("requester_user_id")
+  requesterUserIdLegacy String?                @map("requester_user_id_legacy") @ignore
+  /// Phase 13 - 1 for the first submission of a target; a resubmission (payroll after reject /
+  /// cancel / reopen) creates attempt n+1 and never rewrites an earlier attempt's history
+  attemptNo             Int                    @default(1) @map("attempt_no")
+  status                ApprovalInstanceStatus @default(PENDING)
+  currentStepOrder      Int?                   @map("current_step_order")
+  submittedAt           DateTime               @default(now()) @map("submitted_at")
+  completedAt           DateTime?              @map("completed_at")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+
+  workflow  ApprovalWorkflow?      @relation(fields: [workflowId], references: [id])
+  employee  Employee?              @relation(fields: [employeeId], references: [id])
+  requester User                   @relation("ApprovalRequester", fields: [requesterUserId], references: [id])
+  steps     ApprovalStepInstance[]
+
+  @@unique([targetType, targetId, attemptNo])
+  @@index([status, targetType])
+  @@index([employeeId])
+  @@map("approval_instances")
+}
+
+/// SNAPSHOT of a workflow step taken at submission time.
+model ApprovalStepInstance {
+  id                       Int                  @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                 String?              @unique @map("legacy_id")
+  approvalInstanceId       Int                  @map("approval_instance_id")
+  approvalInstanceIdLegacy String?              @map("approval_instance_id_legacy") @ignore
+  stepOrder                Int                  @map("step_order")
+  nameLao                  String               @map("name_lao")
+  nameEnglish              String?              @map("name_english")
+  approverType             ApprovalApproverType @map("approver_type")
+  managerLevel             Int?                 @map("manager_level")
+  roleId                   Int?                 @map("role_id")
+  roleIdLegacy             String?              @map("role_id_legacy") @ignore
+  userId                   Int?                 @map("user_id")
+  userIdLegacy             String?              @map("user_id_legacy") @ignore
+  permissionCode           String?              @map("permission_code")
+  status                   ApprovalStepStatus   @default(WAITING)
+  actedByUserId            Int?                 @map("acted_by_user_id")
+  actedByUserIdLegacy      String?              @map("acted_by_user_id_legacy") @ignore
+  actedAt                  DateTime?            @map("acted_at")
+  actionNote               String?              @map("action_note") @db.Text
+  createdAt                DateTime             @default(now()) @map("created_at")
+
+  instance   ApprovalInstance        @relation(fields: [approvalInstanceId], references: [id], onDelete: Cascade)
+  actedBy    User?                   @relation("ApprovalStepActedBy", fields: [actedByUserId], references: [id], onDelete: SetNull)
+  candidates ApprovalStepCandidate[]
+
+  @@unique([approvalInstanceId, stepOrder])
+  @@index([actedByUserId])
+  @@map("approval_step_instances")
+}
+
+/// SNAPSHOT of who may act on a step (resolved at submission, never recomputed on read).
+model ApprovalStepCandidate {
+  id                           Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                     String?  @unique @map("legacy_id")
+  approvalStepInstanceId       Int      @map("approval_step_instance_id")
+  approvalStepInstanceIdLegacy String?  @map("approval_step_instance_id_legacy") @ignore
+  userId                       Int      @map("user_id")
+  userIdLegacy                 String?  @map("user_id_legacy") @ignore
+  /// set when an admin adds a candidate later (reassignment), NULL for the original snapshot
+  assignedByUserId             Int?     @map("assigned_by_user_id")
+  assignedByUserIdLegacy       String?  @map("assigned_by_user_id_legacy") @ignore
+  createdAt                    DateTime @default(now()) @map("created_at")
+
+  step ApprovalStepInstance @relation(fields: [approvalStepInstanceId], references: [id], onDelete: Cascade)
+  user User                 @relation("ApprovalCandidate", fields: [userId], references: [id])
+
+  @@unique([approvalStepInstanceId, userId])
+  @@index([userId])
+  @@map("approval_step_candidates")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Phase 10 — Audit log (append-only) + in-app notifications
+// ─────────────────────────────────────────────────────────────────
+
+/// Append-only trail of important mutations. There is deliberately NO updatedAt: rows are never edited
+/// or deleted by the application. `changesJson` holds a redacted { field: { before, after } } diff and
+/// `metadataJson` a small set of safe identifiers — never secrets, request bodies or free-text reasons.
+model AuditEvent {
+  id                Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId          String?  @unique @map("legacy_id")
+  companyId         Int?     @map("company_id")
+  companyIdLegacy   String?  @map("company_id_legacy") @ignore
+  employeeId        Int?     @map("employee_id")
+  employeeIdLegacy  String?  @map("employee_id_legacy") @ignore
+  actorUserId       Int?     @map("actor_user_id")
+  actorUserIdLegacy String?  @map("actor_user_id_legacy") @ignore
+  action            String
+  entityType        String   @map("entity_type")
+  entityId          String?  @map("entity_id")
+  requestId         String?  @map("request_id")
+  ipAddress         String?  @map("ip_address")
+  userAgent         String?  @map("user_agent") @db.VarChar(500)
+  changesJson       Json?    @map("changes_json")
+  metadataJson      Json?    @map("metadata_json")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  actor    User?     @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  company  Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+  @@index([entityType, entityId])
+  @@index([employeeId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([requestId])
+  @@map("audit_events")
+}
+
+/// In-app notification (Lao text is composed when the row is created). Owner-only; never a delivery
+/// channel for email / LINE / push. `dedupeKey` makes creation idempotent per (user, key).
+model Notification {
+  id           Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId     String?   @unique @map("legacy_id")
+  userId       Int       @map("user_id")
+  userIdLegacy String?   @map("user_id_legacy") @ignore
+  type         String
+  titleLao     String    @map("title_lao")
+  bodyLao      String?   @map("body_lao") @db.Text
+  link         String?
+  metadataJson Json?     @map("metadata_json")
+  dedupeKey    String?   @map("dedupe_key")
+  readAt       DateTime? @map("read_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Phase 11 — Payroll foundation (settings, components, compensation, periods, runs)
+// All money is Decimal(18,2); type (EARNING / DEDUCTION) decides the arithmetic direction,
+// amounts themselves are always positive. Salary lives ONLY in these tables, never on Employee.
+// ─────────────────────────────────────────────────────────────────
+
+enum PayFrequency {
+  MONTHLY
+}
+
+enum PayComponentType {
+  EARNING
+  DEDUCTION
+}
+
+enum PayComponentCategory {
+  ALLOWANCE
+  BONUS
+  OTHER_EARNING
+  DEDUCTION
+  OTHER_DEDUCTION
+}
+
+enum PayrollPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  CALCULATED
+  FINALIZED
+}
+
+/// Phase 13 - DIRECT: CALCULATED -> FINALIZE (pre-Phase-13 behaviour). WORKFLOW: finalize needs an approved attempt.
+enum PayrollApprovalMode {
+  DIRECT
+  WORKFLOW
+}
+
+/// Phase 13 - the CURRENT approval attempt of a run (history lives in approval_instances)
+enum PayrollApprovalState {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PayrollCalculationStatus {
+  READY
+  BLOCKED
+}
+
+enum PayrollItemSource {
+  BASE_SALARY
+  RECURRING
+  MANUAL
+  // Phase 12A
+  PRORATED_BASE_SALARY
+  PRORATED_RECURRING
+  ATTENDANCE_DEDUCTION
+  UNPAID_LEAVE
+  LATE_DEDUCTION
+  EARLY_LEAVE_DEDUCTION
+  OVERTIME
+  // Phase 12B
+  PIT
+  SOCIAL_SECURITY_EMPLOYEE
+}
+
+model PayrollSettings {
+  id                  Int                 @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId            String?             @unique @map("legacy_id")
+  companyId           Int                 @unique @map("company_id")
+  companyIdLegacy     String?             @map("company_id_legacy") @ignore
+  currencyCode        String              @map("currency_code") @db.VarChar(3)
+  payFrequency        PayFrequency        @default(MONTHLY) @map("pay_frequency")
+  periodNamingPattern String?             @map("period_naming_pattern")
+  /// Phase 13 - copied onto every NEW run (approvalModeSnapshot); changing it never affects existing runs
+  approvalMode        PayrollApprovalMode @default(DIRECT) @map("approval_mode")
+  status              OrgStatus           @default(ACTIVE)
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("payroll_settings")
+}
+
+model PayComponent {
+  id                      Int                     @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                String?                 @unique @map("legacy_id")
+  companyId               Int                     @map("company_id")
+  companyIdLegacy         String?                 @map("company_id_legacy") @ignore
+  code                    String
+  nameLao                 String                  @map("name_lao")
+  nameEnglish             String?                 @map("name_english")
+  type                    PayComponentType
+  category                PayComponentCategory
+  isRecurring             Boolean                 @default(true) @map("is_recurring")
+  description             String?
+  /// Phase 12B - statutory treatment. Deliberately NOT inferred from `category` (ALLOWANCE / BONUS /
+  /// OTHER_EARNING): statutory treatment is a legal/company classification that must be set explicitly.
+  pitTreatment            PitTreatment            @default(TAXABLE) @map("pit_treatment")
+  socialSecurityTreatment SocialSecurityTreatment @default(INCLUDED) @map("social_security_treatment")
+  status                  OrgStatus               @default(ACTIVE)
+  createdAt               DateTime                @default(now()) @map("created_at")
+  updatedAt               DateTime                @updatedAt @map("updated_at")
+
+  company        Company                         @relation(fields: [companyId], references: [id])
+  recurringUsage EmployeeRecurringPayComponent[]
+  adjustments    PayrollManualAdjustment[]
+  resultItems    PayrollResultItem[]
+
+  @@unique([companyId, code])
+  @@index([companyId, type])
+  @@map("pay_components")
+}
+
+/// Effective-dated base salary. Rows are never edited in place (only the previous row effectiveTo is closed
+/// when a new salary starts) and never deleted - this table IS the salary history.
+model EmployeeCompensation {
+  id                    Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?   @unique @map("legacy_id")
+  employeeId            Int       @map("employee_id")
+  employeeIdLegacy      String?   @map("employee_id_legacy") @ignore
+  companyId             Int       @map("company_id")
+  companyIdLegacy       String?   @map("company_id_legacy") @ignore
+  baseSalary            Decimal   @map("base_salary") @db.Decimal(18, 2)
+  currencyCode          String    @map("currency_code") @db.VarChar(3)
+  effectiveFrom         DateTime  @map("effective_from") @db.Date
+  effectiveTo           DateTime? @map("effective_to") @db.Date
+  reason                String?   @db.Text
+  createdByUserId       Int?      @map("created_by_user_id")
+  createdByUserIdLegacy String?   @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  employee  Employee @relation(fields: [employeeId], references: [id])
+  createdBy User?    @relation("CompensationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, effectiveFrom])
+  @@index([employeeId, effectiveTo])
+  @@map("employee_compensations")
+}
+
+model EmployeeRecurringPayComponent {
+  id                    Int       @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?   @unique @map("legacy_id")
+  employeeId            Int       @map("employee_id")
+  employeeIdLegacy      String?   @map("employee_id_legacy") @ignore
+  payComponentId        Int       @map("pay_component_id")
+  payComponentIdLegacy  String?   @map("pay_component_id_legacy") @ignore
+  amount                Decimal   @db.Decimal(18, 2)
+  effectiveFrom         DateTime  @map("effective_from") @db.Date
+  effectiveTo           DateTime? @map("effective_to") @db.Date
+  note                  String?   @db.Text
+  createdByUserId       Int?      @map("created_by_user_id")
+  createdByUserIdLegacy String?   @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  employee     Employee     @relation(fields: [employeeId], references: [id])
+  payComponent PayComponent @relation(fields: [payComponentId], references: [id])
+  createdBy    User?        @relation("RecurringPayCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, payComponentId, effectiveFrom])
+  @@index([employeeId, effectiveTo])
+  @@map("employee_recurring_pay_components")
+}
+
+model PayrollPeriod {
+  id                      Int                 @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                String?             @unique @map("legacy_id")
+  companyId               Int                 @map("company_id")
+  companyIdLegacy         String?             @map("company_id_legacy") @ignore
+  code                    String
+  name                    String
+  startDate               DateTime            @map("start_date") @db.Date
+  endDate                 DateTime            @map("end_date") @db.Date
+  payDate                 DateTime            @map("pay_date") @db.Date
+  status                  PayrollPeriodStatus @default(OPEN)
+  /// Phase 11.1 - set only for periods generated from a PayrollSchedule; manual periods keep NULL
+  payrollScheduleId       Int?                @map("payroll_schedule_id")
+  payrollScheduleIdLegacy String?             @map("payroll_schedule_id_legacy") @ignore
+  cycleNumber             Int?                @map("cycle_number")
+  sequenceNumber          Int?                @map("sequence_number")
+  generatedBySchedule     Boolean             @default(false) @map("generated_by_schedule")
+  /// Phase 12A.1 - the statutory/payroll month this period belongs to ("2026-10"); NULL when ambiguous
+  /// (a manual period that does not clearly cover exactly one calendar month) - never guessed.
+  payrollMonth            String?             @map("payroll_month") @db.VarChar(7)
+  /// Phase 12A.1 - false for a manual period whose payroll-month identity is ambiguous: it must not
+  /// silently participate in future monthly statutory (PIT / SSO) accumulation.
+  statutoryMonthEligible  Boolean             @default(true) @map("statutory_month_eligible")
+  createdByUserId         Int?                @map("created_by_user_id")
+  createdByUserIdLegacy   String?             @map("created_by_user_id_legacy") @ignore
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @updatedAt @map("updated_at")
+
+  schedule  PayrollSchedule? @relation(fields: [payrollScheduleId], references: [id])
+  company   Company          @relation(fields: [companyId], references: [id])
+  createdBy User?            @relation("PayrollPeriodCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  run       PayrollRun?
+
+  @@unique([companyId, code])
+  @@unique([payrollScheduleId, sequenceNumber])
+  @@index([companyId, startDate])
+  @@map("payroll_periods")
+}
+
+model PayrollRun {
+  id                       Int                      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                 String?                  @unique @map("legacy_id")
+  companyId                Int                      @map("company_id")
+  companyIdLegacy          String?                  @map("company_id_legacy") @ignore
+  periodId                 Int                      @unique @map("period_id")
+  periodIdLegacy           String?                  @map("period_id_legacy") @ignore
+  status                   PayrollRunStatus         @default(DRAFT)
+  /// Phase 11.1 — copied from the period at creation (schedule context of this run); NULL for manual periods
+  payrollScheduleId        Int?                     @map("payroll_schedule_id")
+  payrollScheduleIdLegacy  String?                  @map("payroll_schedule_id_legacy") @ignore
+  currencyCode             String                   @map("currency_code") @db.VarChar(3)
+  calculationVersion       Int                      @default(1) @map("calculation_version")
+  /// Phase 12A - rule set used by the last calculation + an immutable copy of what it said
+  payrollRuleSetId         Int?                     @map("payroll_rule_set_id")
+  payrollRuleSetIdLegacy   String?                  @map("payroll_rule_set_id_legacy") @ignore
+  ruleSnapshotJson         Json?                    @map("rule_snapshot_json")
+  /// Phase 12A.1 - cycle allocation snapshot, stamped by every calculate/finalize (never re-derived from
+  /// a later-edited PayrollSchedule). NULL payrollMonth/cycleNumber = manual period (ONE-equivalent).
+  payrollMonth             String?                  @map("payroll_month") @db.VarChar(7)
+  cycleNumber              Int?                     @map("cycle_number")
+  paymentsPerMonth         PaymentsPerMonth?        @map("payments_per_month")
+  monthlyAllocationMethod  MonthlyAllocationMethod? @map("monthly_allocation_method")
+  monthlyAllocationFactor  Decimal?                 @map("monthly_allocation_factor") @db.Decimal(20, 10)
+  calculatedAt             DateTime?                @map("calculated_at")
+  calculatedByUserId       Int?                     @map("calculated_by_user_id")
+  calculatedByUserIdLegacy String?                  @map("calculated_by_user_id_legacy") @ignore
+  finalizedAt              DateTime?                @map("finalized_at")
+  finalizedByUserId        Int?                     @map("finalized_by_user_id")
+  finalizedByUserIdLegacy  String?                  @map("finalized_by_user_id_legacy") @ignore
+  /// Phase 13 - approval. The mode is frozen at run creation; the fields below describe the CURRENT
+  /// attempt only (every attempt's full history stays in approval_instances).
+  approvalModeSnapshot     PayrollApprovalMode      @default(DIRECT) @map("approval_mode_snapshot")
+  approvalState            PayrollApprovalState     @default(NONE) @map("approval_state")
+  approvalAttemptNo        Int?                     @map("approval_attempt_no")
+  approvalInstanceId       Int?                     @map("approval_instance_id")
+  approvalInstanceIdLegacy String?                  @map("approval_instance_id_legacy") @ignore
+  submittedAt              DateTime?                @map("submitted_at")
+  submittedByUserId        Int?                     @map("submitted_by_user_id")
+  submittedByUserIdLegacy  String?                  @map("submitted_by_user_id_legacy") @ignore
+  approvedAt               DateTime?                @map("approved_at")
+  approvedByUserId         Int?                     @map("approved_by_user_id")
+  approvedByUserIdLegacy   String?                  @map("approved_by_user_id_legacy") @ignore
+  /// SHA-256 of the canonical payroll snapshot that was submitted (and therefore approved)
+  approvalSnapshotHash     String?                  @map("approval_snapshot_hash") @db.Char(64)
+  /// M6 - version of the canonical form approvalSnapshotHash was computed with. NULL/1 = pre-migration (CUID ids,
+  /// never recomputable after the numeric-ID migration); 2 = numeric ids with explicit, zero-padded sort keys.
+  approvalCanonicalVersion Int?                     @map("approval_canonical_version")
+  /// counts / totals / versions of the submitted result - payroll tables only, never audit / notifications
+  approvalSnapshotJson     Json?                    @map("approval_snapshot_json")
+  createdByUserId          Int?                     @map("created_by_user_id")
+  createdByUserIdLegacy    String?                  @map("created_by_user_id_legacy") @ignore
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  updatedAt                DateTime                 @updatedAt @map("updated_at")
+
+  company      Company          @relation(fields: [companyId], references: [id])
+  schedule     PayrollSchedule? @relation(fields: [payrollScheduleId], references: [id])
+  ruleSet      PayrollRuleSet?  @relation(fields: [payrollRuleSetId], references: [id])
+  period       PayrollPeriod    @relation(fields: [periodId], references: [id])
+  createdBy    User?            @relation("PayrollRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  calculatedBy User?            @relation("PayrollRunCalculatedBy", fields: [calculatedByUserId], references: [id], onDelete: SetNull)
+  finalizedBy  User?            @relation("PayrollRunFinalizedBy", fields: [finalizedByUserId], references: [id], onDelete: SetNull)
+  submittedBy  User?            @relation("PayrollRunSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  approvedBy   User?            @relation("PayrollRunApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  results        PayrollEmployeeResult[]
+  adjustments    PayrollManualAdjustment[]
+  payslips       Payslip[]
+  paymentBatches PayrollPaymentBatch[]
+
+  @@index([companyId, status])
+  @@map("payroll_runs")
+}
+
+/// Per-employee SNAPSHOT for one run: what was calculated, with name / department / position as they were.
+model PayrollEmployeeResult {
+  id                            Int                      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                      String?                  @unique @map("legacy_id")
+  payrollRunId                  Int                      @map("payroll_run_id")
+  payrollRunIdLegacy            String?                  @map("payroll_run_id_legacy") @ignore
+  employeeId                    Int                      @map("employee_id")
+  employeeIdLegacy              String?                  @map("employee_id_legacy") @ignore
+  employeeCodeSnapshot          String                   @map("employee_code_snapshot")
+  employeeNameSnapshot          String                   @map("employee_name_snapshot")
+  departmentIdSnapshot          Int?                     @map("department_id_snapshot")
+  departmentIdSnapshotLegacy    String?                  @map("department_id_snapshot_legacy") @ignore
+  departmentNameSnapshot        String?                  @map("department_name_snapshot")
+  positionIdSnapshot            Int?                     @map("position_id_snapshot")
+  positionIdSnapshotLegacy      String?                  @map("position_id_snapshot_legacy") @ignore
+  positionNameSnapshot          String?                  @map("position_name_snapshot")
+  branchIdSnapshot              Int?                     @map("branch_id_snapshot")
+  branchIdSnapshotLegacy        String?                  @map("branch_id_snapshot_legacy") @ignore
+  branchNameSnapshot            String?                  @map("branch_name_snapshot")
+  currencyCode                  String                   @map("currency_code") @db.VarChar(3)
+  baseSalarySnapshot            Decimal?                 @map("base_salary_snapshot") @db.Decimal(18, 2)
+  totalEarnings                 Decimal                  @default(0) @map("total_earnings") @db.Decimal(18, 2)
+  totalDeductions               Decimal                  @default(0) @map("total_deductions") @db.Decimal(18, 2)
+  netPay                        Decimal                  @default(0) @map("net_pay") @db.Decimal(18, 2)
+  calculationStatus             PayrollCalculationStatus @map("calculation_status")
+  issuesJson                    Json?                    @map("issues_json")
+  /// Phase 12A summaries (counts / minutes only - never GPS or raw punches)
+  calculationVersion            Int                      @default(1) @map("calculation_version")
+  attendanceSummaryJson         Json?                    @map("attendance_summary_json")
+  leaveSummaryJson              Json?                    @map("leave_summary_json")
+  overtimeSummaryJson           Json?                    @map("overtime_summary_json")
+  /// Phase 12A.1 - the employee's MONTHLY base salary before cycle allocation (NULL when there was no
+  /// usable compensation row); baseSalarySnapshot above already IS the cycle base (before proration).
+  monthlyBaseSalarySnapshot     Decimal?                 @map("monthly_base_salary_snapshot") @db.Decimal(18, 2)
+  /// the actual (possibly residual-adjusted) ratio applied to THIS employee: baseSalarySnapshot ÷ monthlyBaseSalarySnapshot
+  cycleAllocationFactorSnapshot Decimal?                 @map("cycle_allocation_factor_snapshot") @db.Decimal(20, 10)
+  /// Phase 12B - this cycle's employer Social Security contribution (never affects employee totals above)
+  employerContributionTotal     Decimal?                 @map("employer_contribution_total") @db.Decimal(18, 2)
+  createdAt                     DateTime                 @default(now()) @map("created_at")
+  updatedAt                     DateTime                 @updatedAt @map("updated_at")
+
+  run             PayrollRun              @relation(fields: [payrollRunId], references: [id])
+  employee        Employee                @relation(fields: [employeeId], references: [id])
+  items           PayrollResultItem[]
+  segments        PayrollResultSegment[]
+  statutoryResult PayrollStatutoryResult?
+  payslip         Payslip?
+  paymentItems    PayrollPaymentItem[]
+
+  @@unique([payrollRunId, employeeId])
+  @@index([payrollRunId, calculationStatus])
+  @@map("payroll_employee_results")
+}
+
+model PayrollResultItem {
+  id                            Int               @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                      String?           @unique @map("legacy_id")
+  payrollEmployeeResultId       Int               @map("payroll_employee_result_id")
+  payrollEmployeeResultIdLegacy String?           @map("payroll_employee_result_id_legacy") @ignore
+  code                          String
+  nameLao                       String            @map("name_lao")
+  nameEnglish                   String?           @map("name_english")
+  type                          PayComponentType
+  source                        PayrollItemSource
+  amount                        Decimal           @db.Decimal(18, 2)
+  payComponentId                Int?              @map("pay_component_id")
+  payComponentIdLegacy          String?           @map("pay_component_id_legacy") @ignore
+  /// Phase 12A traceability (minutes, days, rate, multiplier, OT request ids) - never raw punches / GPS
+  detailsJson                   Json?             @map("details_json")
+  createdAt                     DateTime          @default(now()) @map("created_at")
+
+  result       PayrollEmployeeResult @relation(fields: [payrollEmployeeResultId], references: [id], onDelete: Cascade)
+  payComponent PayComponent?         @relation(fields: [payComponentId], references: [id], onDelete: SetNull)
+
+  @@index([payrollEmployeeResultId])
+  @@map("payroll_result_items")
+}
+
+/// Append-only. No update / delete endpoint exists.
+model PayrollManualAdjustment {
+  id                    Int              @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?          @unique @map("legacy_id")
+  payrollRunId          Int              @map("payroll_run_id")
+  payrollRunIdLegacy    String?          @map("payroll_run_id_legacy") @ignore
+  employeeId            Int              @map("employee_id")
+  employeeIdLegacy      String?          @map("employee_id_legacy") @ignore
+  payComponentId        Int?             @map("pay_component_id")
+  payComponentIdLegacy  String?          @map("pay_component_id_legacy") @ignore
+  type                  PayComponentType
+  code                  String
+  nameLao               String           @map("name_lao")
+  amount                Decimal          @db.Decimal(18, 2)
+  reason                String           @db.Text
+  createdByUserId       Int?             @map("created_by_user_id")
+  createdByUserIdLegacy String?          @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime         @default(now()) @map("created_at")
+
+  run          PayrollRun    @relation(fields: [payrollRunId], references: [id])
+  employee     Employee      @relation(fields: [employeeId], references: [id])
+  payComponent PayComponent? @relation(fields: [payComponentId], references: [id], onDelete: SetNull)
+  createdBy    User?         @relation("PayrollAdjustmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([payrollRunId, employeeId])
+  @@map("payroll_manual_adjustments")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Phase 11.1 — Payroll schedule (how periods are generated)
+// Schedule → Period (concrete dates) → Run (calculation instance) → Employee result
+// ─────────────────────────────────────────────────────────────────
+
+enum PayBasis {
+  MONTHLY
+  DAILY
+}
+
+enum PaymentsPerMonth {
+  ONE
+  TWO
+}
+
+enum PayDateRule {
+  PERIOD_END
+}
+
+enum PayrollEmployeeScope {
+  ALL
+  SELECTED
+}
+
+/// Phase 12A.1 - how ONE monthly compensation / recurring amount is split across a TWO-payments/month
+/// schedule's cycles. NULL for ONE/month (no split needed) and for a TWO schedule not yet configured
+/// (calculation then BLOCKS with PAYROLL_CYCLE_ALLOCATION_REQUIRED rather than guessing).
+enum MonthlyAllocationMethod {
+  EQUAL_SPLIT
+  PERIOD_UNITS
+}
+
+model PayrollSchedule {
+  id                      Int                      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                String?                  @unique @map("legacy_id")
+  companyId               Int                      @map("company_id")
+  companyIdLegacy         String?                  @map("company_id_legacy") @ignore
+  code                    String
+  nameLao                 String                   @map("name_lao")
+  nameEnglish             String?                  @map("name_english")
+  payBasis                PayBasis                 @default(MONTHLY) @map("pay_basis")
+  paymentsPerMonth        PaymentsPerMonth         @default(ONE) @map("payments_per_month")
+  anchorDate              DateTime                 @map("anchor_date") @db.Date
+  splitDay                Int?                     @map("split_day")
+  payDateRule             PayDateRule              @default(PERIOD_END) @map("pay_date_rule")
+  /// Phase 12A.1 - required for TWO before calculation; editable only until a FINALIZED run of this
+  /// schedule exists (locked separately from the structural fields below, which lock once periods exist).
+  monthlyAllocationMethod MonthlyAllocationMethod? @map("monthly_allocation_method")
+  employeeScope           PayrollEmployeeScope     @default(ALL) @map("employee_scope")
+  groupByBranch           Boolean                  @default(false) @map("group_by_branch")
+  status                  OrgStatus                @default(ACTIVE)
+  createdByUserId         Int?                     @map("created_by_user_id")
+  createdByUserIdLegacy   String?                  @map("created_by_user_id_legacy") @ignore
+  createdAt               DateTime                 @default(now()) @map("created_at")
+  updatedAt               DateTime                 @updatedAt @map("updated_at")
+
+  company   Company                   @relation(fields: [companyId], references: [id])
+  createdBy User?                     @relation("PayrollScheduleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  employees PayrollScheduleEmployee[]
+  periods   PayrollPeriod[]
+  runs      PayrollRun[]
+
+  @@unique([companyId, code])
+  @@map("payroll_schedules")
+}
+
+/// Membership of a SELECTED-scope schedule. Holds NO salary data.
+model PayrollScheduleEmployee {
+  id                      Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                String?  @unique @map("legacy_id")
+  payrollScheduleId       Int      @map("payroll_schedule_id")
+  payrollScheduleIdLegacy String?  @map("payroll_schedule_id_legacy") @ignore
+  employeeId              Int      @map("employee_id")
+  employeeIdLegacy        String?  @map("employee_id_legacy") @ignore
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  schedule PayrollSchedule @relation(fields: [payrollScheduleId], references: [id], onDelete: Cascade)
+  employee Employee        @relation(fields: [employeeId], references: [id])
+
+  @@unique([payrollScheduleId, employeeId])
+  @@index([employeeId])
+  @@map("payroll_schedule_employees")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Phase 12A — Payroll rules (proration, attendance / leave deductions, OT compensation)
+// Rule sets are IMMUTABLE effective-dated versions: a change is a NEW row (version + 1).
+// ─────────────────────────────────────────────────────────────────
+
+enum ProrationMethod {
+  CALENDAR_DAYS
+  WORKING_DAYS
+}
+
+enum MinuteDeductionBasis {
+  SCHEDULED_DAILY_MINUTES
+  STANDARD_DAILY_MINUTES
+}
+
+enum OvertimeRateBasis {
+  BASE_SALARY_DIVISOR
+}
+
+model PayrollRuleSet {
+  id                          Int                  @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                    String?              @unique @map("legacy_id")
+  companyId                   Int                  @map("company_id")
+  companyIdLegacy             String?              @map("company_id_legacy") @ignore
+  version                     Int                  @default(1)
+  nameLao                     String               @map("name_lao")
+  nameEnglish                 String?              @map("name_english")
+  effectiveFrom               DateTime             @map("effective_from") @db.Date
+  effectiveTo                 DateTime?            @map("effective_to") @db.Date
+  prorationMethod             ProrationMethod      @map("proration_method")
+  absenceDeductionEnabled     Boolean              @default(false) @map("absence_deduction_enabled")
+  unpaidLeaveDeductionEnabled Boolean              @default(false) @map("unpaid_leave_deduction_enabled")
+  lateDeductionEnabled        Boolean              @default(false) @map("late_deduction_enabled")
+  earlyLeaveDeductionEnabled  Boolean              @default(false) @map("early_leave_deduction_enabled")
+  minuteDeductionBasis        MinuteDeductionBasis @default(SCHEDULED_DAILY_MINUTES) @map("minute_deduction_basis")
+  /// reserved for company-specific rules; never silently replaces actual calendar / schedule data
+  standardMonthlyDays         Int?                 @map("standard_monthly_days")
+  standardDailyMinutes        Int?                 @map("standard_daily_minutes")
+  status                      OrgStatus            @default(ACTIVE)
+  createdByUserId             Int?                 @map("created_by_user_id")
+  createdByUserIdLegacy       String?              @map("created_by_user_id_legacy") @ignore
+  createdAt                   DateTime             @default(now()) @map("created_at")
+
+  company       Company                    @relation(fields: [companyId], references: [id])
+  createdBy     User?                      @relation("PayrollRuleSetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  overtimeRules OvertimeCompensationRule[]
+  runs          PayrollRun[]
+
+  @@unique([companyId, version])
+  @@index([companyId, effectiveFrom])
+  @@map("payroll_rule_sets")
+}
+
+model OvertimeCompensationRule {
+  id                     Int               @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId               String?           @unique @map("legacy_id")
+  payrollRuleSetId       Int               @map("payroll_rule_set_id")
+  payrollRuleSetIdLegacy String?           @map("payroll_rule_set_id_legacy") @ignore
+  overtimeType           OvertimeType      @map("overtime_type")
+  multiplier             Decimal           @db.Decimal(8, 4)
+  rateBasis              OvertimeRateBasis @default(BASE_SALARY_DIVISOR) @map("rate_basis")
+  monthlyDivisorDays     Int?              @map("monthly_divisor_days")
+  standardDailyMinutes   Int?              @map("standard_daily_minutes")
+  status                 OrgStatus         @default(ACTIVE)
+  createdAt              DateTime          @default(now()) @map("created_at")
+
+  ruleSet PayrollRuleSet @relation(fields: [payrollRuleSetId], references: [id], onDelete: Cascade)
+
+  @@unique([payrollRuleSetId, overtimeType])
+  @@map("overtime_compensation_rules")
+}
+
+/// One calculation segment of an employee result (a payroll snapshot, frozen with the run).
+model PayrollResultSegment {
+  id                            Int             @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                      String?         @unique @map("legacy_id")
+  payrollEmployeeResultId       Int             @map("payroll_employee_result_id")
+  payrollEmployeeResultIdLegacy String?         @map("payroll_employee_result_id_legacy") @ignore
+  segmentStart                  DateTime        @map("segment_start") @db.Date
+  segmentEnd                    DateTime        @map("segment_end") @db.Date
+  companyIdSnapshot             Int             @map("company_id_snapshot")
+  companyIdSnapshotLegacy       String?         @map("company_id_snapshot_legacy") @ignore
+  companyNameSnapshot           String          @map("company_name_snapshot")
+  branchIdSnapshot              Int?            @map("branch_id_snapshot")
+  branchIdSnapshotLegacy        String?         @map("branch_id_snapshot_legacy") @ignore
+  branchNameSnapshot            String?         @map("branch_name_snapshot")
+  baseSalarySnapshot            Decimal         @map("base_salary_snapshot") @db.Decimal(18, 2)
+  currencyCode                  String          @map("currency_code") @db.VarChar(3)
+  prorationMethod               ProrationMethod @map("proration_method")
+  periodUnits                   Decimal         @map("period_units") @db.Decimal(8, 2)
+  payableUnits                  Decimal         @map("payable_units") @db.Decimal(8, 2)
+  prorationFactor               Decimal         @map("proration_factor") @db.Decimal(20, 10)
+  proratedBaseSalary            Decimal         @map("prorated_base_salary") @db.Decimal(18, 2)
+  /// recurring components prorated in this segment: [{ code, nameLao, type, amount, prorated }]
+  recurringJson                 Json?           @map("recurring_json")
+  createdAt                     DateTime        @default(now()) @map("created_at")
+
+  result PayrollEmployeeResult @relation(fields: [payrollEmployeeResultId], references: [id], onDelete: Cascade)
+
+  @@index([payrollEmployeeResultId])
+  @@map("payroll_result_segments")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Phase 12B — Lao PIT + Social Security (effective-dated statutory payroll rules)
+//
+// A PayrollStatutoryRuleSet is a company's own EFFECTIVE-DATED CONFIGURATION of the current legal
+// PIT brackets / Social Security rates — never hard-coded business logic. It follows the SAME
+// immutable-version discipline as PayrollRuleSet (Phase 12A): DRAFT until explicitly activated,
+// then never edited in place; a change is a NEW version. See payrollStatutoryRule.service.ts.
+// ─────────────────────────────────────────────────────────────────
+
+enum StatutoryRuleStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum PitTreatment {
+  TAXABLE
+  EXEMPT
+}
+
+enum SocialSecurityTreatment {
+  INCLUDED
+  EXCLUDED
+}
+
+/// how `overtimePitExemptionBaseSalaryThreshold` is compared against the employee's monthly base
+/// salary effective on the OT work date. Only one comparison is supported today (the current Lao
+/// reference: OT is exempt when the monthly base salary is BELOW the threshold) but this stays an
+/// enum, never a hard-coded `<`, so a future rule shape does not require new business logic.
+enum StatutoryThresholdComparison {
+  LESS_THAN
+}
+
+enum StatutoryItemType {
+  PIT
+  SOCIAL_SECURITY_EMPLOYEE
+  SOCIAL_SECURITY_EMPLOYER
+}
+
+enum StatutoryItemDirection {
+  DEDUCTION
+  CREDIT
+  EMPLOYER_COST
+}
+
+model PayrollStatutoryRuleSet {
+  id               Int     @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId         String? @unique @map("legacy_id")
+  companyId        Int     @map("company_id")
+  companyIdLegacy  String? @map("company_id_legacy") @ignore
+  jurisdictionCode String  @default("LA") @map("jurisdiction_code") @db.VarChar(8)
+  currencyCode     String  @map("currency_code") @db.VarChar(3)
+  version          Int
+
+  nameLao     String  @map("name_lao")
+  nameEnglish String? @map("name_english")
+
+  effectiveFrom         DateTime  @map("effective_from") @db.Date
+  effectiveTo           DateTime? @map("effective_to") @db.Date
+  /// disambiguates a transition that falls INSIDE a payroll month (§3) - the payroll month ("2026-08")
+  /// that should start using THIS version; NULL means "unambiguous" (effectiveFrom is not inside any
+  /// payroll month this rule set will ever be resolved for, i.e. it starts on/before a month begins).
+  effectivePayrollMonth String?   @map("effective_payroll_month") @db.VarChar(7)
+
+  /// legal / source metadata - NEVER used as business logic, only displayed so a historical result can
+  /// explain itself (§2, §47)
+  legalReference    String?   @map("legal_reference")
+  sourceDescription String?   @map("source_description") @db.Text
+  verifiedAt        DateTime? @map("verified_at")
+  notes             String?   @map("notes") @db.Text
+
+  pitEnabled            Boolean @default(true) @map("pit_enabled")
+  socialSecurityEnabled Boolean @default(true) @map("social_security_enabled")
+
+  /// Phase 12B §17 - OT PIT exemption is CONFIGURATION, never a hard-coded "< 3,000,000" condition.
+  overtimePitTreatmentEnabled             Boolean                       @default(false) @map("overtime_pit_treatment_enabled")
+  overtimePitExemptionBaseSalaryThreshold Decimal?                      @map("overtime_pit_exemption_base_salary_threshold") @db.Decimal(18, 2)
+  overtimePitThresholdComparison          StatutoryThresholdComparison? @default(LESS_THAN) @map("overtime_pit_threshold_comparison")
+
+  status                StatutoryRuleStatus @default(DRAFT)
+  createdByUserId       Int?                @map("created_by_user_id")
+  createdByUserIdLegacy String?             @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  company   Company @relation(fields: [companyId], references: [id])
+  createdBy User?   @relation("StatutoryRuleSetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  pitBrackets        PayrollPitBracket[]
+  socialSecurityRule PayrollSocialSecurityRule?
+  statutoryResults   PayrollStatutoryResult[]
+
+  @@unique([companyId, version])
+  @@index([companyId, status])
+  @@map("payroll_statutory_rule_sets")
+}
+
+/// Progressive monthly PIT brackets of one rule set version. Validated (service-side, never trusted
+/// from the DB alone at read time): ordered by `order`, non-overlapping, continuous, first
+/// lowerBound = 0, last upperBound = NULL (open-ended top bracket).
+model PayrollPitBracket {
+  id                       Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                 String?  @unique @map("legacy_id")
+  statutoryRuleSetId       Int      @map("statutory_rule_set_id")
+  statutoryRuleSetIdLegacy String?  @map("statutory_rule_set_id_legacy") @ignore
+  order                    Int
+  lowerBound               Decimal  @map("lower_bound") @db.Decimal(18, 2)
+  upperBound               Decimal? @map("upper_bound") @db.Decimal(18, 2)
+  /// a fraction, e.g. 0.0500 for 5% - never a whole-number percentage
+  rate                     Decimal  @db.Decimal(6, 4)
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  ruleSet PayrollStatutoryRuleSet @relation(fields: [statutoryRuleSetId], references: [id], onDelete: Cascade)
+
+  @@unique([statutoryRuleSetId, order])
+  @@map("payroll_pit_brackets")
+}
+
+/// One rule set has AT MOST one Social Security configuration (both employee and employer share it).
+model PayrollSocialSecurityRule {
+  id                                Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                          String?  @unique @map("legacy_id")
+  statutoryRuleSetId                Int      @unique @map("statutory_rule_set_id")
+  statutoryRuleSetIdLegacy          String?  @map("statutory_rule_set_id_legacy") @ignore
+  employeeRate                      Decimal  @map("employee_rate") @db.Decimal(6, 4)
+  employerRate                      Decimal  @map("employer_rate") @db.Decimal(6, 4)
+  minimumBase                       Decimal? @map("minimum_base") @db.Decimal(18, 2)
+  /// NOT assumed permanent (§6) - a future version can raise, lower or remove it
+  maximumBase                       Decimal? @map("maximum_base") @db.Decimal(18, 2)
+  employeeContributionPitDeductible Boolean  @default(true) @map("employee_contribution_pit_deductible")
+  createdAt                         DateTime @default(now()) @map("created_at")
+
+  ruleSet PayrollStatutoryRuleSet @relation(fields: [statutoryRuleSetId], references: [id], onDelete: Cascade)
+
+  @@map("payroll_social_security_rules")
+}
+
+/// HR-managed statutory applicability + sensitive identifiers (§10-11). Never inferred from
+/// nationality, role or position - HR explicitly sets `pitApplicable` / `socialSecurityApplicable`.
+model EmployeeStatutoryProfile {
+  id               Int     @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId         String? @unique @map("legacy_id")
+  employeeId       Int     @unique @map("employee_id")
+  employeeIdLegacy String? @map("employee_id_legacy") @ignore
+
+  pitApplicable            Boolean @default(true) @map("pit_applicable")
+  socialSecurityApplicable Boolean @default(true) @map("social_security_applicable")
+
+  /// SENSITIVE - never returned to Employee list / general detail / Notifications / Manager / Audit
+  /// JSON (§11); only the authorized statutory profile endpoint returns these.
+  tin                         String?   @map("tin")
+  socialSecurityNumber        String?   @map("social_security_number")
+  socialSecurityEffectiveFrom DateTime? @map("social_security_effective_from") @db.Date
+  socialSecurityEffectiveTo   DateTime? @map("social_security_effective_to") @db.Date
+
+  notes String? @map("notes") @db.Text
+
+  createdByUserId       Int?     @map("created_by_user_id")
+  createdByUserIdLegacy String?  @map("created_by_user_id_legacy") @ignore
+  updatedByUserId       Int?     @map("updated_by_user_id")
+  updatedByUserIdLegacy String?  @map("updated_by_user_id_legacy") @ignore
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  employee  Employee @relation(fields: [employeeId], references: [id])
+  createdBy User?    @relation("StatutoryProfileCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User?    @relation("StatutoryProfileUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("employee_statutory_profiles")
+}
+
+/// One PER-EMPLOYEE, PER-RUN statutory snapshot (§32) - frozen with the run, exactly like
+/// PayrollEmployeeResult itself. Explains a historical result WITHOUT depending on live statutory
+/// configuration: `ruleSnapshotJson` is the full frozen brackets/SSO-rule/OT-exemption config used.
+model PayrollStatutoryResult {
+  id                            Int     @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                      String? @unique @map("legacy_id")
+  payrollEmployeeResultId       Int     @unique @map("payroll_employee_result_id")
+  payrollEmployeeResultIdLegacy String? @map("payroll_employee_result_id_legacy") @ignore
+
+  statutoryRuleSetId       Int     @map("statutory_rule_set_id")
+  statutoryRuleSetIdLegacy String? @map("statutory_rule_set_id_legacy") @ignore
+  ruleVersion              Int     @map("rule_version")
+  payrollMonth             String  @map("payroll_month") @db.VarChar(7)
+
+  // ---- this cycle's OWN gross figures (before month-to-date accumulation) ----
+  pitTaxableGross        Decimal @default(0) @map("pit_taxable_gross") @db.Decimal(18, 2)
+  pitExemptIncome        Decimal @default(0) @map("pit_exempt_income") @db.Decimal(18, 2)
+  employeeSocialSecurity Decimal @default(0) @map("employee_social_security") @db.Decimal(18, 2)
+  employerSocialSecurity Decimal @default(0) @map("employer_social_security") @db.Decimal(18, 2)
+
+  // ---- PIT month-to-date reconciliation (§25-26, §28) ----
+  pitTaxableBase          Decimal @default(0) @map("pit_taxable_base") @db.Decimal(18, 2)
+  pitLiabilityMonthToDate Decimal @default(0) @map("pit_liability_month_to_date") @db.Decimal(18, 2)
+  pitPriorWithheld        Decimal @default(0) @map("pit_prior_withheld") @db.Decimal(18, 2)
+  /// can be NEGATIVE (a CREDIT - §28); never represented as a hidden negative deduction elsewhere
+  pitCurrentCycle         Decimal @default(0) @map("pit_current_cycle") @db.Decimal(18, 2)
+
+  // ---- Social Security month-to-date reconciliation (§19-21, §27-28) ----
+  socialSecurityBaseMonthToDate   Decimal @default(0) @map("social_security_base_month_to_date") @db.Decimal(18, 2)
+  employeeSsoLiabilityMonthToDate Decimal @default(0) @map("employee_sso_liability_month_to_date") @db.Decimal(18, 2)
+  employeeSsoPrior                Decimal @default(0) @map("employee_sso_prior") @db.Decimal(18, 2)
+  employeeSsoCurrentCycle         Decimal @default(0) @map("employee_sso_current_cycle") @db.Decimal(18, 2)
+
+  employerSsoLiabilityMonthToDate Decimal @default(0) @map("employer_sso_liability_month_to_date") @db.Decimal(18, 2)
+  employerSsoPrior                Decimal @default(0) @map("employer_sso_prior") @db.Decimal(18, 2)
+  employerSsoCurrentCycle         Decimal @default(0) @map("employer_sso_current_cycle") @db.Decimal(18, 2)
+
+  /// frozen copy of the brackets / SSO rule / OT exemption config actually used (§32, §47)
+  ruleSnapshotJson        Json
+  /// [{ lowerBound, upperBound, rate, amount }] computed on the MONTH-TO-DATE taxable base (§45)
+  pitBracketBreakdownJson Json?
+  /// per-OT-request exemption decision, snapshotted (§18): [{ requestId, workDate, monthlyBaseSalary, exempt }]
+  otExemptionJson         Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  result  PayrollEmployeeResult   @relation(fields: [payrollEmployeeResultId], references: [id], onDelete: Cascade)
+  ruleSet PayrollStatutoryRuleSet @relation(fields: [statutoryRuleSetId], references: [id])
+  items   PayrollStatutoryItem[]
+
+  @@map("payroll_statutory_results")
+}
+
+model PayrollStatutoryItem {
+  id                             Int                    @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                       String?                @unique @map("legacy_id")
+  payrollStatutoryResultId       Int                    @map("payroll_statutory_result_id")
+  payrollStatutoryResultIdLegacy String?                @map("payroll_statutory_result_id_legacy") @ignore
+  code                           String
+  type                           StatutoryItemType
+  direction                      StatutoryItemDirection
+  amount                         Decimal                @db.Decimal(18, 2)
+  metadataJson                   Json?                  @map("metadata_json")
+  createdAt                      DateTime               @default(now()) @map("created_at")
+
+  result PayrollStatutoryResult @relation(fields: [payrollStatutoryResultId], references: [id], onDelete: Cascade)
+
+  @@index([payrollStatutoryResultId])
+  @@map("payroll_statutory_items")
+}
+
+/// Phase 13 - an IMMUTABLE payslip: one per finalized PayrollEmployeeResult, rendered (HTML + PDF) ONLY
+/// from snapshotJson - never from live employee / compensation / component / statutory data. No updatedAt:
+/// rows are never updated or deleted.
+model Payslip {
+  id                            Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                      String?  @unique @map("legacy_id")
+  companyId                     Int      @map("company_id")
+  companyIdLegacy               String?  @map("company_id_legacy") @ignore
+  payrollRunId                  Int      @map("payroll_run_id")
+  payrollRunIdLegacy            String?  @map("payroll_run_id_legacy") @ignore
+  payrollEmployeeResultId       Int      @unique @map("payroll_employee_result_id")
+  payrollEmployeeResultIdLegacy String?  @map("payroll_employee_result_id_legacy") @ignore
+  employeeId                    Int      @map("employee_id")
+  employeeIdLegacy              String?  @map("employee_id_legacy") @ignore
+  /// PS-{periodCode}-{employeeCode}, normalized (A-Z 0-9 -)
+  payslipNumber                 String   @map("payslip_number")
+  templateVersion               Int      @default(1) @map("template_version")
+  payrollMonth                  String?  @map("payroll_month") @db.VarChar(7)
+  periodCode                    String   @map("period_code")
+  periodName                    String   @map("period_name")
+  periodStart                   DateTime @map("period_start") @db.Date
+  periodEnd                     DateTime @map("period_end") @db.Date
+  payDate                       DateTime @map("pay_date") @db.Date
+  cycleNumber                   Int?     @map("cycle_number")
+  currencyCode                  String   @map("currency_code") @db.VarChar(3)
+  issuedAt                      DateTime @default(now()) @map("issued_at")
+  issuedByUserId                Int?     @map("issued_by_user_id")
+  issuedByUserIdLegacy          String?  @map("issued_by_user_id_legacy") @ignore
+  snapshotJson                  Json     @map("snapshot_json")
+  createdAt                     DateTime @default(now()) @map("created_at")
+
+  company  Company               @relation(fields: [companyId], references: [id])
+  run      PayrollRun            @relation(fields: [payrollRunId], references: [id])
+  result   PayrollEmployeeResult @relation(fields: [payrollEmployeeResultId], references: [id])
+  employee Employee              @relation(fields: [employeeId], references: [id])
+  issuedBy User?                 @relation("PayslipIssuedBy", fields: [issuedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, payslipNumber])
+  @@index([employeeId, periodEnd])
+  @@index([payrollRunId])
+  @@map("payslips")
+}
+
+// ================================================================================================
+// Phase 14 - payroll PAYMENT PREPARATION: employee payment method + encrypted bank accounts,
+// payment batches built from FINALIZED payroll (never recalculated), generic bank-file export and
+// MANUAL payment confirmation. No money moves through this system.
+// ================================================================================================
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CASH
+}
+
+enum PaymentRecordStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PaymentBatchStatus {
+  DRAFT
+  VALIDATED
+  EXPORTED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+  /// Phase 15 — derived: some items REVERSED (the rest PAID, or unresolved without any PAID)
+  PARTIALLY_REVERSED
+  /// Phase 15 — derived: every live item REVERSED
+  REVERSED
+}
+
+/// Phase 15 — ORIGINAL = the run's one normal batch (sequence 1); RETRY = a re-issue of FAILED /
+/// REVERSED items of an earlier batch (sequence 2, 3 …)
+enum PaymentBatchKind {
+  ORIGINAL
+  RETRY
+}
+
+enum PaymentItemStatus {
+  READY
+  BLOCKED
+  EXPORTED
+  PAID
+  FAILED
+  CANCELLED
+  /// Phase 15 — a PAID item whose payment came back; the PAID facts (paidAt, reference) are kept
+  REVERSED
+}
+
+enum BankExportFormat {
+  CSV
+  XLSX
+}
+
+/// How an employee receives pay. BANK_TRANSFER points at the employee's ONE active primary account.
+model EmployeePaymentProfile {
+  id                    Int                 @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?             @unique @map("legacy_id")
+  employeeId            Int                 @unique @map("employee_id")
+  employeeIdLegacy      String?             @map("employee_id_legacy") @ignore
+  paymentMethod         PaymentMethod       @map("payment_method")
+  /// the primary account used for BANK_TRANSFER (kept in sync by employeePayment.service)
+  bankAccountId         Int?                @map("bank_account_id")
+  bankAccountIdLegacy   String?             @map("bank_account_id_legacy") @ignore
+  status                PaymentRecordStatus @default(ACTIVE)
+  createdByUserId       Int?                @map("created_by_user_id")
+  createdByUserIdLegacy String?             @map("created_by_user_id_legacy") @ignore
+  updatedByUserId       Int?                @map("updated_by_user_id")
+  updatedByUserIdLegacy String?             @map("updated_by_user_id_legacy") @ignore
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  employee    Employee             @relation(fields: [employeeId], references: [id])
+  bankAccount EmployeeBankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  createdBy   User?                @relation("PaymentProfileCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy   User?                @relation("PaymentProfileUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([bankAccountId])
+  @@map("employee_payment_profiles")
+}
+
+/// SENSITIVE. The account number is stored ONLY as AES-256-GCM ciphertext (+ IV + auth tag); the API
+/// only ever returns a masked value built from last4. Rows are never deleted (history).
+model EmployeeBankAccount {
+  id                     Int                 @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId               String?             @unique @map("legacy_id")
+  employeeId             Int                 @map("employee_id")
+  employeeIdLegacy       String?             @map("employee_id_legacy") @ignore
+  companyId              Int                 @map("company_id")
+  companyIdLegacy        String?             @map("company_id_legacy") @ignore
+  bankCode               String              @map("bank_code") @db.VarChar(30)
+  bankName               String              @map("bank_name") @db.VarChar(150)
+  branchName             String?             @map("branch_name") @db.VarChar(150)
+  accountName            String              @map("account_name") @db.VarChar(150)
+  accountNumberEncrypted String              @map("account_number_encrypted") @db.Text
+  accountNumberIv        String              @map("account_number_iv") @db.VarChar(32)
+  accountNumberAuthTag   String              @map("account_number_auth_tag") @db.VarChar(32)
+  accountNumberLast4     String              @map("account_number_last4") @db.VarChar(4)
+  /// which key encrypted this row (future rotation); the key material itself is never stored
+  encryptionKeyVersion   Int                 @default(1) @map("encryption_key_version")
+  currencyCode           String              @map("currency_code") @db.VarChar(3)
+  isPrimary              Boolean             @default(false) @map("is_primary")
+  status                 PaymentRecordStatus @default(ACTIVE)
+  createdByUserId        Int?                @map("created_by_user_id")
+  createdByUserIdLegacy  String?             @map("created_by_user_id_legacy") @ignore
+  updatedByUserId        Int?                @map("updated_by_user_id")
+  updatedByUserIdLegacy  String?             @map("updated_by_user_id_legacy") @ignore
+  createdAt              DateTime            @default(now()) @map("created_at")
+  updatedAt              DateTime            @updatedAt @map("updated_at")
+
+  employee        Employee                 @relation(fields: [employeeId], references: [id])
+  company         Company                  @relation(fields: [companyId], references: [id])
+  createdBy       User?                    @relation("BankAccountCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy       User?                    @relation("BankAccountUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  paymentProfiles EmployeePaymentProfile[]
+  paymentItems    PayrollPaymentItem[]
+
+  @@index([employeeId, status])
+  @@index([companyId])
+  @@map("employee_bank_accounts")
+}
+
+/// Payment batches of a FINALIZED payroll run: ONE ORIGINAL batch (sequence 1) plus Phase 15 RETRY
+/// batches (sequence 2, 3 …). Amounts come from the finalized results (a retry copies the source
+/// item's amount) - payroll is never recalculated and never modified by anything here.
+model PayrollPaymentBatch {
+  id                      Int                @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                String?            @unique @map("legacy_id")
+  companyId               Int                @map("company_id")
+  companyIdLegacy         String?            @map("company_id_legacy") @ignore
+  payrollRunId            Int                @map("payroll_run_id")
+  payrollRunIdLegacy      String?            @map("payroll_run_id_legacy") @ignore
+  batchKind               PaymentBatchKind   @default(ORIGINAL) @map("batch_kind")
+  /// 1 = the ORIGINAL batch; a retry batch takes (max sequence of the run) + 1
+  sequenceNo              Int                @default(1) @map("sequence_no")
+  /// RETRY only: the batch whose FAILED / REVERSED items this batch re-issues
+  parentBatchId           Int?               @map("parent_batch_id")
+  parentBatchIdLegacy     String?            @map("parent_batch_id_legacy") @ignore
+  /// PAY-{periodCode} (normalized; a collision appends a stable run suffix); retry: {original}-R{n}
+  batchNumber             String             @map("batch_number")
+  status                  PaymentBatchStatus @default(DRAFT)
+  currencyCode            String             @map("currency_code") @db.VarChar(3)
+  paymentDate             DateTime           @map("payment_date") @db.Date
+  employeeCount           Int                @default(0) @map("employee_count")
+  totalAmount             Decimal            @default(0) @map("total_amount") @db.Decimal(18, 2)
+  notes                   String?            @db.Text
+  createdByUserId         Int?               @map("created_by_user_id")
+  createdByUserIdLegacy   String?            @map("created_by_user_id_legacy") @ignore
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+  validatedAt             DateTime?          @map("validated_at")
+  validatedByUserId       Int?               @map("validated_by_user_id")
+  validatedByUserIdLegacy String?            @map("validated_by_user_id_legacy") @ignore
+  exportedAt              DateTime?          @map("exported_at")
+  exportedByUserId        Int?               @map("exported_by_user_id")
+  exportedByUserIdLegacy  String?            @map("exported_by_user_id_legacy") @ignore
+  confirmedAt             DateTime?          @map("confirmed_at")
+  confirmedByUserId       Int?               @map("confirmed_by_user_id")
+  confirmedByUserIdLegacy String?            @map("confirmed_by_user_id_legacy") @ignore
+  cancelledAt             DateTime?          @map("cancelled_at")
+  cancelledByUserId       Int?               @map("cancelled_by_user_id")
+  cancelledByUserIdLegacy String?            @map("cancelled_by_user_id_legacy") @ignore
+
+  company         Company                       @relation(fields: [companyId], references: [id])
+  run             PayrollRun                    @relation(fields: [payrollRunId], references: [id])
+  parentBatch     PayrollPaymentBatch?          @relation("PaymentBatchRetries", fields: [parentBatchId], references: [id])
+  retryBatches    PayrollPaymentBatch[]         @relation("PaymentBatchRetries")
+  createdBy       User?                         @relation("PaymentBatchCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  validatedBy     User?                         @relation("PaymentBatchValidatedBy", fields: [validatedByUserId], references: [id], onDelete: SetNull)
+  exportedBy      User?                         @relation("PaymentBatchExportedBy", fields: [exportedByUserId], references: [id], onDelete: SetNull)
+  confirmedBy     User?                         @relation("PaymentBatchConfirmedBy", fields: [confirmedByUserId], references: [id], onDelete: SetNull)
+  cancelledBy     User?                         @relation("PaymentBatchCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  items           PayrollPaymentItem[]
+  exports         PaymentBatchExport[]
+  reversals       PayrollPaymentReversal[]
+  reconciliations PaymentReconciliationImport[]
+
+  /// the ORIGINAL batch is always sequence 1 → still exactly one original batch per run (DB backstop)
+  @@unique([payrollRunId, sequenceNo])
+  @@unique([companyId, batchNumber])
+  @@index([companyId, status])
+  @@index([parentBatchId])
+  @@map("payroll_payment_batches")
+}
+
+/// Per-employee payment SNAPSHOT (identity, method, bank details incl. the encrypted account number,
+/// amount = finalized netPay). A later bank-account change never alters it; only a DRAFT rebuild does.
+model PayrollPaymentItem {
+  id                             Int                  @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                       String?              @unique @map("legacy_id")
+  paymentBatchId                 Int                  @map("payment_batch_id")
+  paymentBatchIdLegacy           String?              @map("payment_batch_id_legacy") @ignore
+  payrollEmployeeResultId        Int                  @map("payroll_employee_result_id")
+  payrollEmployeeResultIdLegacy  String?              @map("payroll_employee_result_id_legacy") @ignore
+  employeeId                     Int                  @map("employee_id")
+  employeeIdLegacy               String?              @map("employee_id_legacy") @ignore
+  employeeCodeSnapshot           String               @map("employee_code_snapshot")
+  employeeNameSnapshot           String               @map("employee_name_snapshot")
+  /// NULL = the employee had no active payment profile at snapshot time (MISSING_PAYMENT_PROFILE)
+  paymentMethod                  PaymentMethod?       @map("payment_method")
+  /// informational link to the source account (the snapshot fields below are what is paid to)
+  bankAccountId                  Int?                 @map("bank_account_id")
+  bankAccountIdLegacy            String?              @map("bank_account_id_legacy") @ignore
+  bankAccountStatusSnapshot      PaymentRecordStatus? @map("bank_account_status_snapshot")
+  bankCodeSnapshot               String?              @map("bank_code_snapshot") @db.VarChar(30)
+  bankNameSnapshot               String?              @map("bank_name_snapshot") @db.VarChar(150)
+  bankBranchSnapshot             String?              @map("bank_branch_snapshot") @db.VarChar(150)
+  accountNameSnapshot            String?              @map("account_name_snapshot") @db.VarChar(150)
+  accountNumberEncryptedSnapshot String?              @map("account_number_encrypted_snapshot") @db.Text
+  accountNumberIvSnapshot        String?              @map("account_number_iv_snapshot") @db.VarChar(32)
+  accountNumberAuthTagSnapshot   String?              @map("account_number_auth_tag_snapshot") @db.VarChar(32)
+  accountNumberLast4             String?              @map("account_number_last4") @db.VarChar(4)
+  encryptionKeyVersion           Int?                 @map("encryption_key_version")
+  bankCurrencySnapshot           String?              @map("bank_currency_snapshot") @db.VarChar(3)
+  currencyCode                   String               @map("currency_code") @db.VarChar(3)
+  amount                         Decimal              @db.Decimal(18, 2)
+  /// deterministic reference written into the bank file ({batchNumber}-{employeeCode})
+  transferReference              String               @map("transfer_reference")
+  status                         PaymentItemStatus
+  /// validation issue codes (MISSING_BANK_ACCOUNT ...) of a BLOCKED item
+  issuesJson                     Json?                @map("issues_json")
+  paymentReference               String?              @map("payment_reference") @db.VarChar(100)
+  failureCode                    String?              @map("failure_code") @db.VarChar(50)
+  failureReason                  String?              @map("failure_reason") @db.VarChar(500)
+  paidAt                         DateTime?            @map("paid_at")
+  confirmedAt                    DateTime?            @map("confirmed_at")
+  confirmedByUserId              Int?                 @map("confirmed_by_user_id")
+  confirmedByUserIdLegacy        String?              @map("confirmed_by_user_id_legacy") @ignore
+  /// Phase 15 — RETRY items: the FAILED / REVERSED item this attempt replaces (null = original attempt)
+  sourcePaymentItemId            Int?                 @map("source_payment_item_id")
+  sourcePaymentItemIdLegacy      String?              @map("source_payment_item_id_legacy") @ignore
+  /// Phase 15 — DOUBLE-PAY BACKSTOP: = sourcePaymentItemId while this retry is not CANCELLED, NULL
+  /// otherwise. UNIQUE, so a source has at most ONE live retry child (MySQL allows many NULLs).
+  retrySourceLockId              Int?                 @unique @map("retry_source_lock_id")
+  retrySourceLockIdLegacy        String?              @map("retry_source_lock_id_legacy") @ignore
+  /// Phase 15 — immutable bank instruction id (PI-{batchNumber}-{employeeCode}); NULL on Phase 14 items
+  instructionReference           String?              @map("instruction_reference") @db.VarChar(120)
+  reconciledAt                   DateTime?            @map("reconciled_at")
+  reconciledByUserId             Int?                 @map("reconciled_by_user_id")
+  reconciledByUserIdLegacy       String?              @map("reconciled_by_user_id_legacy") @ignore
+  reconciliationImportId         Int?                 @map("reconciliation_import_id")
+  reconciliationImportIdLegacy   String?              @map("reconciliation_import_id_legacy") @ignore
+  createdAt                      DateTime             @default(now()) @map("created_at")
+  updatedAt                      DateTime             @updatedAt @map("updated_at")
+
+  batch                PayrollPaymentBatch          @relation(fields: [paymentBatchId], references: [id])
+  result               PayrollEmployeeResult        @relation(fields: [payrollEmployeeResultId], references: [id])
+  employee             Employee                     @relation(fields: [employeeId], references: [id])
+  bankAccount          EmployeeBankAccount?         @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  confirmedBy          User?                        @relation("PaymentItemConfirmedBy", fields: [confirmedByUserId], references: [id], onDelete: SetNull)
+  sourceItem           PayrollPaymentItem?          @relation("PaymentItemRetries", fields: [sourcePaymentItemId], references: [id])
+  retryItems           PayrollPaymentItem[]         @relation("PaymentItemRetries")
+  reconciledBy         User?                        @relation("PaymentItemReconciledBy", fields: [reconciledByUserId], references: [id], onDelete: SetNull)
+  reconciliationImport PaymentReconciliationImport? @relation("PaymentItemReconciliation", fields: [reconciliationImportId], references: [id], onDelete: SetNull)
+  reversal             PayrollPaymentReversal?
+  reconciliationRows   PaymentReconciliationRow[]
+
+  @@unique([paymentBatchId, payrollEmployeeResultId])
+  @@unique([paymentBatchId, instructionReference])
+  @@index([employeeId])
+  @@index([bankAccountId])
+  @@index([payrollEmployeeResultId])
+  @@index([sourcePaymentItemId])
+  @@map("payroll_payment_items")
+}
+
+/// A configurable, GENERIC bank file layout (no bank-specific format is hard-coded). Columns may only
+/// reference the predefined safe fields (never arbitrary database fields).
+model BankExportProfile {
+  id                    Int                 @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?             @unique @map("legacy_id")
+  companyId             Int                 @map("company_id")
+  companyIdLegacy       String?             @map("company_id_legacy") @ignore
+  code                  String
+  name                  String
+  format                BankExportFormat
+  /// CSV only: "," ";" "|" or "TAB"
+  delimiter             String?             @db.VarChar(5)
+  includeHeader         Boolean             @default(true) @map("include_header")
+  /// UTF-8 or UTF-8-BOM (CSV)
+  encoding              String              @default("UTF-8") @db.VarChar(20)
+  dateFormat            String              @default("YYYY-MM-DD") @map("date_format") @db.VarChar(20)
+  /// [{ field: "EMPLOYEE_CODE", header: "Employee Code" }, ...]
+  columnMappingJson     Json                @map("column_mapping_json")
+  status                PaymentRecordStatus @default(ACTIVE)
+  createdByUserId       Int?                @map("created_by_user_id")
+  createdByUserIdLegacy String?             @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  company   Company              @relation(fields: [companyId], references: [id])
+  createdBy User?                @relation("BankExportProfileCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  exports   PaymentBatchExport[]
+
+  @@unique([companyId, code])
+  @@map("bank_export_profiles")
+}
+
+/// A record of an exported bank file: NO file content is stored. The file is regenerated on demand from
+/// the immutable batch items + the profile configuration frozen here; fileHash proves it is identical.
+model PaymentBatchExport {
+  id                        Int              @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                  String?          @unique @map("legacy_id")
+  paymentBatchId            Int              @map("payment_batch_id")
+  paymentBatchIdLegacy      String?          @map("payment_batch_id_legacy") @ignore
+  bankExportProfileId       Int              @map("bank_export_profile_id")
+  bankExportProfileIdLegacy String?          @map("bank_export_profile_id_legacy") @ignore
+  exportNumber              String           @map("export_number")
+  format                    BankExportFormat
+  fileName                  String           @map("file_name")
+  /// SHA-256 (hex) of the generated file bytes
+  fileHash                  String           @map("file_hash") @db.Char(64)
+  rowCount                  Int              @map("row_count")
+  totalAmount               Decimal          @map("total_amount") @db.Decimal(18, 2)
+  /// the profile configuration used (so a later profile edit never changes this export)
+  profileSnapshotJson       Json             @map("profile_snapshot_json")
+  createdByUserId           Int?             @map("created_by_user_id")
+  createdByUserIdLegacy     String?          @map("created_by_user_id_legacy") @ignore
+  createdAt                 DateTime         @default(now()) @map("created_at")
+
+  batch     PayrollPaymentBatch @relation(fields: [paymentBatchId], references: [id])
+  profile   BankExportProfile   @relation(fields: [bankExportProfileId], references: [id])
+  createdBy User?               @relation("PaymentBatchExportCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([paymentBatchId, bankExportProfileId])
+  @@unique([paymentBatchId, exportNumber])
+  @@map("payment_batch_exports")
+}
+
+// ================================================================================================
+// Phase 15 - bank RECONCILIATION (bank result files are UNTRUSTED input, reviewed before apply),
+// PAYMENT REVERSAL (append-only) and RETRY / REISSUE (new items with lineage). Still downstream of
+// payroll: nothing here recalculates or modifies payroll, payslips or netPay.
+// ================================================================================================
+
+enum ReconciliationImportStatus {
+  PENDING_REVIEW
+  READY
+  APPLIED
+  CANCELLED
+}
+
+/// what the bank said, after the profile's status mapping
+enum ReconciliationNormalizedStatus {
+  PAID
+  FAILED
+  REVERSED
+  UNKNOWN
+}
+
+enum ReconciliationMatchState {
+  MATCHED
+  UNMATCHED
+  CONFLICT
+  INVALID
+  IGNORED
+}
+
+/// Append-only record that a PAID item's payment came back. No update / delete. The item keeps its
+/// original paidAt / paymentReference / snapshot; only its status becomes REVERSED.
+model PayrollPaymentReversal {
+  id                     Int      @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId               String?  @unique @map("legacy_id")
+  paymentItemId          Int      @unique @map("payment_item_id")
+  paymentItemIdLegacy    String?  @map("payment_item_id_legacy") @ignore
+  paymentBatchId         Int      @map("payment_batch_id")
+  paymentBatchIdLegacy   String?  @map("payment_batch_id_legacy") @ignore
+  companyId              Int      @map("company_id")
+  companyIdLegacy        String?  @map("company_id_legacy") @ignore
+  /// INTERNAL reason (HR only; never shown to the employee, never in audit / notifications)
+  reason                 String   @db.VarChar(500)
+  bankReference          String?  @map("bank_reference") @db.VarChar(100)
+  /// the date the reversal took effect at the bank (not in the future)
+  effectiveDate          DateTime @map("effective_date") @db.Date
+  reversedByUserId       Int?     @map("reversed_by_user_id")
+  reversedByUserIdLegacy String?  @map("reversed_by_user_id_legacy") @ignore
+  /// when it was recorded in this system
+  reversedAt             DateTime @map("reversed_at")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  item       PayrollPaymentItem  @relation(fields: [paymentItemId], references: [id])
+  batch      PayrollPaymentBatch @relation(fields: [paymentBatchId], references: [id])
+  company    Company             @relation(fields: [companyId], references: [id])
+  reversedBy User?               @relation("PaymentReversedBy", fields: [reversedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([paymentBatchId])
+  @@map("payroll_payment_reversals")
+}
+
+/// How to READ a bank's result file: generic CSV / XLSX, mapped ONLY onto predefined safe fields
+/// (INSTRUCTION_REFERENCE, BANK_TRANSACTION_REFERENCE, STATUS, AMOUNT, CURRENCY, PAID_DATE,
+/// FAILURE_CODE, FAILURE_REASON) plus a bank-status → PAID / FAILED / REVERSED mapping.
+model PaymentReconciliationProfile {
+  id                    Int                 @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?             @unique @map("legacy_id")
+  companyId             Int                 @map("company_id")
+  companyIdLegacy       String?             @map("company_id_legacy") @ignore
+  code                  String
+  name                  String
+  format                BankExportFormat
+  /// CSV only: "," ";" "|" or "TAB"
+  delimiter             String?             @db.VarChar(5)
+  /// CSV only: UTF-8 (a BOM is accepted)
+  encoding              String?             @db.VarChar(20)
+  /// XLSX only: the worksheet to read (null = the first sheet)
+  sheetName             String?             @map("sheet_name") @db.VarChar(100)
+  hasHeader             Boolean             @default(true) @map("has_header")
+  dateFormat            String?             @map("date_format") @db.VarChar(20)
+  /// [{ field: "INSTRUCTION_REFERENCE", column: "Instruction Ref" }, ...] (column = header text, or
+  /// the 1-based column number when the file has no header)
+  columnMappingJson     Json                @map("column_mapping_json")
+  /// { PAID: ["SUCCESS", "00"], FAILED: ["FAILED"], REVERSED: ["RETURNED"] }
+  statusMappingJson     Json                @map("status_mapping_json")
+  status                PaymentRecordStatus @default(ACTIVE)
+  createdByUserId       Int?                @map("created_by_user_id")
+  createdByUserIdLegacy String?             @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  company   Company                       @relation(fields: [companyId], references: [id])
+  createdBy User?                         @relation("ReconciliationProfileCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  imports   PaymentReconciliationImport[]
+
+  @@unique([companyId, code])
+  @@map("payment_reconciliation_profiles")
+}
+
+/// One uploaded bank result file for one batch. The RAW FILE IS NOT STORED: only the safe file name,
+/// its SHA-256 and the normalized mapped rows. Import never changes a payment item — Apply does.
+model PaymentReconciliationImport {
+  id                            Int                        @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                      String?                    @unique @map("legacy_id")
+  companyId                     Int                        @map("company_id")
+  companyIdLegacy               String?                    @map("company_id_legacy") @ignore
+  paymentBatchId                Int                        @map("payment_batch_id")
+  paymentBatchIdLegacy          String?                    @map("payment_batch_id_legacy") @ignore
+  reconciliationProfileId       Int                        @map("reconciliation_profile_id")
+  reconciliationProfileIdLegacy String?                    @map("reconciliation_profile_id_legacy") @ignore
+  fileName                      String                     @map("file_name") @db.VarChar(200)
+  /// SHA-256 (hex) of the uploaded bytes
+  fileHash                      String                     @map("file_hash") @db.Char(64)
+  format                        BankExportFormat
+  /// the profile configuration used (a later profile edit never changes this import)
+  profileSnapshotJson           Json                       @map("profile_snapshot_json")
+  status                        ReconciliationImportStatus @default(PENDING_REVIEW)
+  rowCount                      Int                        @default(0) @map("row_count")
+  matchedCount                  Int                        @default(0) @map("matched_count")
+  unmatchedCount                Int                        @default(0) @map("unmatched_count")
+  conflictCount                 Int                        @default(0) @map("conflict_count")
+  invalidCount                  Int                        @default(0) @map("invalid_count")
+  ignoredCount                  Int                        @default(0) @map("ignored_count")
+  importedByUserId              Int?                       @map("imported_by_user_id")
+  importedByUserIdLegacy        String?                    @map("imported_by_user_id_legacy") @ignore
+  importedAt                    DateTime                   @default(now()) @map("imported_at")
+  appliedByUserId               Int?                       @map("applied_by_user_id")
+  appliedByUserIdLegacy         String?                    @map("applied_by_user_id_legacy") @ignore
+  appliedAt                     DateTime?                  @map("applied_at")
+  cancelledByUserId             Int?                       @map("cancelled_by_user_id")
+  cancelledByUserIdLegacy       String?                    @map("cancelled_by_user_id_legacy") @ignore
+  cancelledAt                   DateTime?                  @map("cancelled_at")
+  updatedAt                     DateTime                   @updatedAt @map("updated_at")
+
+  company      Company                      @relation(fields: [companyId], references: [id])
+  batch        PayrollPaymentBatch          @relation(fields: [paymentBatchId], references: [id])
+  profile      PaymentReconciliationProfile @relation(fields: [reconciliationProfileId], references: [id])
+  importedBy   User?                        @relation("ReconciliationImportedBy", fields: [importedByUserId], references: [id], onDelete: SetNull)
+  appliedBy    User?                        @relation("ReconciliationAppliedBy", fields: [appliedByUserId], references: [id], onDelete: SetNull)
+  cancelledBy  User?                        @relation("ReconciliationCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  rows         PaymentReconciliationRow[]
+  appliedItems PayrollPaymentItem[]         @relation("PaymentItemReconciliation")
+
+  /// IDEMPOTENCY: the same file (hash) for the same batch + profile is one import, never two
+  @@unique([paymentBatchId, reconciliationProfileId, fileHash])
+  @@index([paymentBatchId, importedAt])
+  @@map("payment_reconciliation_imports")
+}
+
+/// One normalized row of a bank result file — ONLY the fields the profile maps (never unknown columns,
+/// never an account number from the bank file).
+model PaymentReconciliationRow {
+  id                           Int                            @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                     String?                        @unique @map("legacy_id")
+  reconciliationImportId       Int                            @map("reconciliation_import_id")
+  reconciliationImportIdLegacy String?                        @map("reconciliation_import_id_legacy") @ignore
+  /// the line / row number in the uploaded file (header = row 1)
+  rowNumber                    Int                            @map("row_number")
+  instructionReference         String?                        @map("instruction_reference") @db.VarChar(120)
+  bankTransactionReference     String?                        @map("bank_transaction_reference") @db.VarChar(100)
+  externalStatus               String                         @map("external_status") @db.VarChar(50)
+  normalizedStatus             ReconciliationNormalizedStatus @map("normalized_status")
+  amount                       Decimal?                       @db.Decimal(18, 2)
+  currencyCode                 String?                        @map("currency_code") @db.VarChar(3)
+  paidDate                     DateTime?                      @map("paid_date") @db.Date
+  failureCode                  String?                        @map("failure_code") @db.VarChar(50)
+  failureReason                String?                        @map("failure_reason") @db.VarChar(500)
+  matchedPaymentItemId         Int?                           @map("matched_payment_item_id")
+  matchedPaymentItemIdLegacy   String?                        @map("matched_payment_item_id_legacy") @ignore
+  /// AUTO (exact instruction reference) or MANUAL (a reviewer's explicit choice)
+  matchMethod                  String?                        @map("match_method") @db.VarChar(10)
+  matchState                   ReconciliationMatchState       @map("match_state")
+  issueCode                    String?                        @map("issue_code") @db.VarChar(50)
+  ignoredReason                String?                        @map("ignored_reason") @db.VarChar(500)
+  ignoredByUserId              Int?                           @map("ignored_by_user_id")
+  ignoredByUserIdLegacy        String?                        @map("ignored_by_user_id_legacy") @ignore
+  ignoredAt                    DateTime?                      @map("ignored_at")
+  matchedByUserId              Int?                           @map("matched_by_user_id")
+  matchedByUserIdLegacy        String?                        @map("matched_by_user_id_legacy") @ignore
+  matchedAt                    DateTime?                      @map("matched_at")
+  /// set by Apply: PAID / FAILED / NO_CHANGE
+  applyOutcome                 String?                        @map("apply_outcome") @db.VarChar(20)
+  createdAt                    DateTime                       @default(now()) @map("created_at")
+  updatedAt                    DateTime                       @updatedAt @map("updated_at")
+
+  import      PaymentReconciliationImport @relation(fields: [reconciliationImportId], references: [id])
+  matchedItem PayrollPaymentItem?         @relation(fields: [matchedPaymentItemId], references: [id])
+  ignoredBy   User?                       @relation("ReconciliationRowIgnoredBy", fields: [ignoredByUserId], references: [id], onDelete: SetNull)
+  matchedBy   User?                       @relation("ReconciliationRowMatchedBy", fields: [matchedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([reconciliationImportId, rowNumber])
+  @@index([matchedPaymentItemId])
+  @@map("payment_reconciliation_rows")
+}
+
+// ================================================================================================
+// Phase 16 - payroll ACCOUNTING sub-ledger: GL accounts, effective-dated accounting rule sets and
+// mappings, balanced journals (payroll accrual, payment settlement, payment reversal) built from
+// IMMUTABLE finalized payroll / payment data, and file export. No ERP / bank / government posting.
+// ================================================================================================
+
+enum GLAccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum AccountingRuleSetStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+/// also the journal type
+enum AccountingEventType {
+  PAYROLL_ACCRUAL
+  PAYMENT_SETTLEMENT
+  PAYMENT_REVERSAL
+}
+
+enum AccountingDimension {
+  COMPANY
+  BRANCH
+  DEPARTMENT
+  EMPLOYEE
+}
+
+/// M6 - the table a PayrollJournalLine.sourceId refers to (explicit discriminator, never inferred from the id):
+/// accrual lines -> PAYROLL_RUN, or PAYROLL_RESULT for EMPLOYEE-grouped lines; settlement / reversal lines -> PAYMENT_ITEM
+enum JournalSourceEntity {
+  PAYROLL_RUN
+  PAYROLL_RESULT
+  PAYMENT_ITEM
+}
+
+enum PayrollJournalStatus {
+  DRAFT
+  VALIDATED
+  POSTED
+  CANCELLED
+}
+
+/// A company GL account (codes are configuration, never hard-coded). No delete: an account used by a
+/// journal line is protected by the RESTRICT foreign key; INACTIVE accounts stay on history.
+model GLAccount {
+  id                    Int                 @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?             @unique @map("legacy_id")
+  companyId             Int                 @map("company_id")
+  companyIdLegacy       String?             @map("company_id_legacy") @ignore
+  code                  String              @db.VarChar(30)
+  name                  String              @db.VarChar(150)
+  type                  GLAccountType
+  status                PaymentRecordStatus @default(ACTIVE)
+  description           String?             @db.VarChar(500)
+  createdByUserId       Int?                @map("created_by_user_id")
+  createdByUserIdLegacy String?             @map("created_by_user_id_legacy") @ignore
+  updatedByUserId       Int?                @map("updated_by_user_id")
+  updatedByUserIdLegacy String?             @map("updated_by_user_id_legacy") @ignore
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  company        Company                    @relation(fields: [companyId], references: [id])
+  debitMappings  PayrollAccountingMapping[] @relation("MappingDebitAccount")
+  creditMappings PayrollAccountingMapping[] @relation("MappingCreditAccount")
+  journalLines   PayrollJournalLine[]
+
+  @@unique([companyId, code])
+  @@map("gl_accounts")
+}
+
+/// Effective-dated set of accounting mappings. Only ONE ACTIVE set may cover a date for a company.
+/// Journals snapshot the accounts they used - changing a rule set never rewrites a journal.
+model PayrollAccountingRuleSet {
+  id                      Int                     @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                String?                 @unique @map("legacy_id")
+  companyId               Int                     @map("company_id")
+  companyIdLegacy         String?                 @map("company_id_legacy") @ignore
+  name                    String                  @db.VarChar(150)
+  version                 Int
+  effectiveFrom           DateTime                @map("effective_from") @db.Date
+  effectiveTo             DateTime?               @map("effective_to") @db.Date
+  status                  AccountingRuleSetStatus @default(DRAFT)
+  createdByUserId         Int?                    @map("created_by_user_id")
+  createdByUserIdLegacy   String?                 @map("created_by_user_id_legacy") @ignore
+  activatedByUserId       Int?                    @map("activated_by_user_id")
+  activatedByUserIdLegacy String?                 @map("activated_by_user_id_legacy") @ignore
+  activatedAt             DateTime?               @map("activated_at")
+  createdAt               DateTime                @default(now()) @map("created_at")
+  updatedAt               DateTime                @updatedAt @map("updated_at")
+
+  company  Company                    @relation(fields: [companyId], references: [id])
+  mappings PayrollAccountingMapping[]
+  journals PayrollJournal[]
+
+  @@unique([companyId, version])
+  @@index([companyId, status])
+  @@map("payroll_accounting_rule_sets")
+}
+
+/// One accounting mapping: an event + a stable payroll / payment SOURCE type -> debit and/or credit
+/// account, and how lines are grouped (company / branch / department / employee).
+model PayrollAccountingMapping {
+  id                    Int                 @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?             @unique @map("legacy_id")
+  ruleSetId             Int                 @map("rule_set_id")
+  ruleSetIdLegacy       String?             @map("rule_set_id_legacy") @ignore
+  eventType             AccountingEventType @map("event_type")
+  /// a predefined source type (BASE_SALARY, EMPLOYEE_PIT, NET_PAYABLE, BANK_CLEARING ...)
+  sourceType            String              @map("source_type") @db.VarChar(40)
+  debitAccountId        Int?                @map("debit_account_id")
+  debitAccountIdLegacy  String?             @map("debit_account_id_legacy") @ignore
+  creditAccountId       Int?                @map("credit_account_id")
+  creditAccountIdLegacy String?             @map("credit_account_id_legacy") @ignore
+  groupingDimension     AccountingDimension @default(COMPANY) @map("grouping_dimension")
+  descriptionTemplate   String?             @map("description_template") @db.VarChar(200)
+  status                PaymentRecordStatus @default(ACTIVE)
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  ruleSet       PayrollAccountingRuleSet @relation(fields: [ruleSetId], references: [id])
+  debitAccount  GLAccount?               @relation("MappingDebitAccount", fields: [debitAccountId], references: [id])
+  creditAccount GLAccount?               @relation("MappingCreditAccount", fields: [creditAccountId], references: [id])
+
+  @@unique([ruleSetId, eventType, sourceType])
+  @@map("payroll_accounting_mappings")
+}
+
+/// A balanced payroll journal (totalDebit = totalCredit). POSTED = final inside LaoHR (never sent to
+/// an external system) and immutable; DRAFT / VALIDATED may be cancelled (kept, never deleted).
+model PayrollJournal {
+  id                      Int                  @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                String?              @unique @map("legacy_id")
+  companyId               Int                  @map("company_id")
+  companyIdLegacy         String?              @map("company_id_legacy") @ignore
+  journalNumber           String               @map("journal_number") @db.VarChar(80)
+  journalType             AccountingEventType  @map("journal_type")
+  /// PAYROLL_RUN | PAYMENT_BATCH | PAYMENT_REVERSAL
+  sourceType              String               @map("source_type") @db.VarChar(30)
+  sourceId                Int                  @map("source_id")
+  sourceIdLegacy          String?              @map("source_id_legacy") @ignore
+  accountingDate          DateTime             @map("accounting_date") @db.Date
+  currencyCode            String               @map("currency_code") @db.VarChar(3)
+  status                  PayrollJournalStatus @default(DRAFT)
+  ruleSetId               Int?                 @map("rule_set_id")
+  ruleSetIdLegacy         String?              @map("rule_set_id_legacy") @ignore
+  ruleSetVersion          Int?                 @map("rule_set_version")
+  totalDebit              Decimal              @default(0) @map("total_debit") @db.Decimal(18, 2)
+  totalCredit             Decimal              @default(0) @map("total_credit") @db.Decimal(18, 2)
+  lineCount               Int                  @default(0) @map("line_count")
+  description             String               @db.VarChar(300)
+  /// PAYMENT_REVERSAL: the POSTED settlement journal whose lines this journal reverses
+  reversedJournalId       Int?                 @map("reversed_journal_id")
+  reversedJournalIdLegacy String?              @map("reversed_journal_id_legacy") @ignore
+  createdByUserId         Int?                 @map("created_by_user_id")
+  createdByUserIdLegacy   String?              @map("created_by_user_id_legacy") @ignore
+  createdAt               DateTime             @default(now()) @map("created_at")
+  updatedAt               DateTime             @updatedAt @map("updated_at")
+  validatedByUserId       Int?                 @map("validated_by_user_id")
+  validatedByUserIdLegacy String?              @map("validated_by_user_id_legacy") @ignore
+  validatedAt             DateTime?            @map("validated_at")
+  postedByUserId          Int?                 @map("posted_by_user_id")
+  postedByUserIdLegacy    String?              @map("posted_by_user_id_legacy") @ignore
+  postedAt                DateTime?            @map("posted_at")
+  cancelledByUserId       Int?                 @map("cancelled_by_user_id")
+  cancelledByUserIdLegacy String?              @map("cancelled_by_user_id_legacy") @ignore
+  cancelledAt             DateTime?            @map("cancelled_at")
+
+  company          Company                   @relation(fields: [companyId], references: [id])
+  ruleSet          PayrollAccountingRuleSet? @relation(fields: [ruleSetId], references: [id])
+  reversedJournal  PayrollJournal?           @relation("JournalReversal", fields: [reversedJournalId], references: [id])
+  reversalJournals PayrollJournal[]          @relation("JournalReversal")
+  lines            PayrollJournalLine[]
+  sources          PayrollJournalSource[]
+  exports          PayrollJournalExport[]
+
+  @@unique([companyId, journalNumber])
+  @@index([companyId, journalType, status])
+  @@index([sourceType, sourceId])
+  @@map("payroll_journals")
+}
+
+/// Exactly one of debit / credit is > 0. Account + dimension codes are SNAPSHOTS (history never moves).
+model PayrollJournalLine {
+  id                      Int                  @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId                String?              @unique @map("legacy_id")
+  journalId               Int                  @map("journal_id")
+  journalIdLegacy         String?              @map("journal_id_legacy") @ignore
+  lineNo                  Int                  @map("line_no")
+  accountId               Int                  @map("account_id")
+  accountIdLegacy         String?              @map("account_id_legacy") @ignore
+  accountCodeSnapshot     String               @map("account_code_snapshot") @db.VarChar(30)
+  accountNameSnapshot     String               @map("account_name_snapshot") @db.VarChar(150)
+  debit                   Decimal              @default(0) @db.Decimal(18, 2)
+  credit                  Decimal              @default(0) @db.Decimal(18, 2)
+  description             String               @db.VarChar(300)
+  employeeId              Int?                 @map("employee_id")
+  employeeIdLegacy        String?              @map("employee_id_legacy") @ignore
+  employeeCodeSnapshot    String?              @map("employee_code_snapshot")
+  branchId                Int?                 @map("branch_id")
+  branchIdLegacy          String?              @map("branch_id_legacy") @ignore
+  branchCodeSnapshot      String?              @map("branch_code_snapshot")
+  departmentId            Int?                 @map("department_id")
+  departmentIdLegacy      String?              @map("department_id_legacy") @ignore
+  departmentCodeSnapshot  String?              @map("department_code_snapshot")
+  /// the payroll / payment source (BASE_SALARY ... / PAYMENT_ITEM) and its id when it is one record
+  sourceType              String               @map("source_type") @db.VarChar(40)
+  sourceId                Int?                 @map("source_id")
+  sourceIdLegacy          String?              @map("source_id_legacy") @ignore
+  /// M6: WHICH table sourceId points to. Numeric ids collide across tables (a run and a payroll result can
+  /// both be 7), so sourceId is never resolved without this. NULL exactly when sourceId is NULL.
+  sourceEntity            JournalSourceEntity? @map("source_entity")
+  /// readable source reference for exports (period code / payment instruction reference ...)
+  sourceReferenceSnapshot String?              @map("source_reference_snapshot") @db.VarChar(150)
+  createdAt               DateTime             @default(now()) @map("created_at")
+
+  journal PayrollJournal @relation(fields: [journalId], references: [id])
+  account GLAccount      @relation(fields: [accountId], references: [id])
+
+  @@unique([journalId, lineNo])
+  @@index([sourceType, sourceId])
+  @@index([sourceEntity, sourceId])
+  @@map("payroll_journal_lines")
+}
+
+/// DUPLICATE PROTECTION: one row per accounted source. activeKey (UNIQUE) = "{TYPE}:{sourceId}" while
+/// the journal is not CANCELLED, NULL otherwise - a source can be in only ONE live journal.
+model PayrollJournalSource {
+  id              Int                 @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId        String?             @unique @map("legacy_id")
+  journalId       Int                 @map("journal_id")
+  journalIdLegacy String?             @map("journal_id_legacy") @ignore
+  journalType     AccountingEventType @map("journal_type")
+  /// PAYROLL_RUN | PAYMENT_ITEM | PAYMENT_REVERSAL
+  sourceType      String              @map("source_type") @db.VarChar(30)
+  sourceId        Int                 @map("source_id")
+  sourceIdLegacy  String?             @map("source_id_legacy") @ignore
+  activeKey       String?             @unique @map("active_key") @db.VarChar(120)
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  journal PayrollJournal @relation(fields: [journalId], references: [id])
+
+  @@index([sourceType, sourceId])
+  @@index([journalId])
+  @@map("payroll_journal_sources")
+}
+
+/// A generic accounting file layout (CSV / XLSX) over predefined safe fields only.
+model AccountingExportProfile {
+  id                    Int                 @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?             @unique @map("legacy_id")
+  companyId             Int                 @map("company_id")
+  companyIdLegacy       String?             @map("company_id_legacy") @ignore
+  code                  String
+  name                  String
+  format                BankExportFormat
+  delimiter             String?             @db.VarChar(5)
+  includeHeader         Boolean             @default(true) @map("include_header")
+  encoding              String              @default("UTF-8") @db.VarChar(20)
+  dateFormat            String              @default("YYYY-MM-DD") @map("date_format") @db.VarChar(20)
+  columnMappingJson     Json                @map("column_mapping_json")
+  status                PaymentRecordStatus @default(ACTIVE)
+  createdByUserId       Int?                @map("created_by_user_id")
+  createdByUserIdLegacy String?             @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  company Company                @relation(fields: [companyId], references: [id])
+  exports PayrollJournalExport[]
+
+  @@unique([companyId, code])
+  @@map("accounting_export_profiles")
+}
+
+/// No file content stored: the frozen profile + SHA-256; a re-export regenerates the same bytes.
+model PayrollJournalExport {
+  id                    Int              @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId              String?          @unique @map("legacy_id")
+  journalId             Int              @map("journal_id")
+  journalIdLegacy       String?          @map("journal_id_legacy") @ignore
+  exportProfileId       Int              @map("export_profile_id")
+  exportProfileIdLegacy String?          @map("export_profile_id_legacy") @ignore
+  exportNumber          String           @map("export_number")
+  format                BankExportFormat
+  fileName              String           @map("file_name")
+  fileHash              String           @map("file_hash") @db.Char(64)
+  rowCount              Int              @map("row_count")
+  profileSnapshotJson   Json             @map("profile_snapshot_json")
+  createdByUserId       Int?             @map("created_by_user_id")
+  createdByUserIdLegacy String?          @map("created_by_user_id_legacy") @ignore
+  createdAt             DateTime         @default(now()) @map("created_at")
+
+  journal PayrollJournal          @relation(fields: [journalId], references: [id])
+  profile AccountingExportProfile @relation(fields: [exportProfileId], references: [id])
+
+  @@unique([journalId, exportProfileId])
+  @@unique([journalId, exportNumber])
+  @@map("payroll_journal_exports")
+}
+
+// ============================================================================================
+// Phase 17B — saved report filters (a private per-user CONVENIENCE: never stores authorization,
+// never stores report rows; every use is re-validated against the user's CURRENT permissions/scope)
+// ============================================================================================
+
+enum ReportType {
+  EMPLOYEES
+  ATTENDANCE
+  LEAVE
+  OVERTIME
+  PAYROLL
+  PAYMENTS
+  ACCOUNTING
+}
+
+model SavedReportFilter {
+  id           Int        @id @default(autoincrement())
+  /// M6: the pre-migration CUID (NULL for rows created after the numeric-ID migration); kept for M9 audit lookup
+  legacyId     String?    @unique @map("legacy_id")
+  userId       Int        @map("user_id")
+  userIdLegacy String?    @map("user_id_legacy") @ignore
+  reportType   ReportType @map("report_type")
+  name         String     @db.VarChar(80)
+  /// whitelisted filter keys only (company / branch / department / employee / dates / month / status …)
+  filtersJson  Json       @map("filters_json")
+  groupBy      String?    @map("group_by") @db.VarChar(40)
+  sortBy       String?    @map("sort_by") @db.VarChar(40)
+  sortDir      String?    @map("sort_dir") @db.VarChar(4)
+  /// selected column keys (validated against the backend column catalog)
+  columnsJson  Json?      @map("columns_json")
+  isDefault    Boolean    @default(false) @map("is_default")
+  /// "<userId>:<reportType>" while isDefault, NULL otherwise — UNIQUE: at most one default per user/report
+  defaultKey   String?    @unique @map("default_key") @db.VarChar(80)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reportType, name])
+  @@index([userId, reportType])
+  @@map("saved_report_filters")
+}
+
+/// Numeric-ID migration (M2): every pre-migration CUID → (table, new numeric id). Built in M2, kept permanently
+/// for audit / forensic resolution of CUIDs in audit_events and frozen JSON (audit §10.2 M10). Read-only;
+/// managed by Prisma Migrate only — @@ignore keeps it out of Prisma Client.
+model LegacyIdMap {
+  legacyId  String @id @map("legacy_id")
+  tableName String @map("table_name") @db.VarChar(64)
+  newId     Int    @map("new_id")
+
+  @@unique([tableName, newId], map: "uq_legacy_id_map_table_new")
+  @@map("legacy_id_map")
+  @@ignore
+}
