@@ -30,15 +30,22 @@ interface RawQueryClient {
  * Checks the PHYSICAL key shape before anything reads or writes: canonical mode → employees.id must be
  * INT; rehearsal mode → employees.id_new must be INT (the post-M4 dual-column copy). Before M8 the live
  * hr_db still has VARCHAR (CUID) keys, so every entry point (server, seed, scripts) refuses it.
+ *
+ * `COLUMN_NAME` is matched as a literal `IN (...)`, never a bound parameter: on production MariaDB,
+ * `information_schema.COLUMNS` reliably matches a literal `COLUMN_NAME` but returns zero rows for the
+ * same filter sent as a prepared-statement parameter (confirmed — a plain `mysql` client query finds the
+ * row; the identical query through `$queryRawUnsafe(..., column)` does not), which made this guard report
+ * "missing" even though `employees.id` was already INT. `TABLE_SCHEMA`/`TABLE_NAME` were never the bound
+ * value here, so they are unaffected and stay as literals.
  */
 export async function assertNumericSchemaShapeOf(client: RawQueryClient): Promise<void> {
 	const column = numericIdRehearsal ? 'id_new' : 'id';
-	const rows = await client.$queryRawUnsafe<{ DATA_TYPE: string }[]>(
-		`SELECT DATA_TYPE FROM information_schema.COLUMNS
-		 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'employees' AND COLUMN_NAME = ?`,
-		column
+	const rows = await client.$queryRawUnsafe<{ COLUMN_NAME: string; DATA_TYPE: string }[]>(
+		`SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS
+		 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'employees' AND COLUMN_NAME IN ('id', 'id_new')`
 	);
-	const type = rows[0]?.DATA_TYPE?.toLowerCase();
+	const matched = rows.find((r) => r.COLUMN_NAME?.toLowerCase() === column.toLowerCase());
+	const type = matched?.DATA_TYPE?.toLowerCase();
 	if (type !== 'int') {
 		throw new Error(
 			`Numeric-ID schema check failed: employees.${column} is "${type ?? 'missing'}" in database "${databaseNameOf(process.env.DATABASE_URL) ?? '?'}", expected INT. ` +

@@ -4,7 +4,11 @@ import { prisma } from '../src/config/prisma.js';
 import { setServerClockForTests } from '../src/lib/clock.js';
 import { idRef } from '../src/lib/idFormat.js';
 import { ID_MAX, idParamSchema, idSchema, parseId } from '../src/validation/common.schema.js';
-import { databaseNameOf, assertNumericIdMode } from '../src/config/numericIdMode.js';
+import {
+	databaseNameOf,
+	assertNumericIdMode,
+	assertNumericSchemaShapeOf
+} from '../src/config/numericIdMode.js';
 import { idKey } from '../src/services/payrollApprovalSnapshot.js';
 import { writeAuditEvent } from '../src/services/audit.service.js';
 import { auditEntityIdAliases } from '../src/services/auditEntityAlias.js';
@@ -360,5 +364,46 @@ describe('saved report filters store numeric ids', () => {
 			});
 			expect(res.status, bad).toBe(400);
 		}
+	});
+});
+
+// ============================================================================================
+describe('physical schema-shape guard (assertNumericSchemaShapeOf)', () => {
+	/** A stub client that records every call and returns whatever rows the test wants. */
+	function stubClient(rows: { COLUMN_NAME: string; DATA_TYPE: string }[]) {
+		const calls: { query: string; values: unknown[] }[] = [];
+		return {
+			calls,
+			$queryRawUnsafe: async (query: string, ...values: unknown[]) => {
+				calls.push({ query, values });
+				return rows;
+			}
+		};
+	}
+
+	it('N17. passes when employees.id is INT, and sends no bound parameter (the production regression)', async () => {
+		const client = stubClient([{ COLUMN_NAME: 'id', DATA_TYPE: 'int' }]);
+		await expect(assertNumericSchemaShapeOf(client)).resolves.toBeUndefined();
+		// the real defect: a `?` placeholder on COLUMN_NAME matched a literal `mysql` client query but
+		// returned zero rows through Prisma's $queryRawUnsafe on production MariaDB — the fix removes the
+		// bound parameter entirely for this lookup, which this assertion locks in.
+		expect(client.calls).toHaveLength(1);
+		expect(client.calls[0]?.values).toEqual([]);
+		expect(client.calls[0]?.query).toMatch(/COLUMN_NAME IN \('id', 'id_new'\)/);
+	});
+
+	it("N18. throws 'missing' when the column is absent from the result (pre-M8 shape, or a stub returning zero rows)", async () => {
+		await expect(assertNumericSchemaShapeOf(stubClient([]))).rejects.toThrow(
+			/employees\.id is "missing"/
+		);
+		// the other candidate column alone (e.g. only id_new exists) must not satisfy the canonical check
+		await expect(
+			assertNumericSchemaShapeOf(stubClient([{ COLUMN_NAME: 'id_new', DATA_TYPE: 'int' }]))
+		).rejects.toThrow(/employees\.id is "missing"/);
+	});
+
+	it('N19. throws the actual type when the column exists but is not INT (pre-M8 VARCHAR)', async () => {
+		const client = stubClient([{ COLUMN_NAME: 'id', DATA_TYPE: 'varchar' }]);
+		await expect(assertNumericSchemaShapeOf(client)).rejects.toThrow(/employees\.id is "varchar"/);
 	});
 });
