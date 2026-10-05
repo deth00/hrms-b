@@ -14,8 +14,12 @@ if (!assertEncryptionConfig({ production: isProduction })) {
 // numeric-ID migration: never serve against a database whose keys are not numeric (e.g. hr_db before M8)
 await assertNumericSchemaShape();
 
-const server = app.listen(env.port, () => {
-	console.log(`hr-api listening on port ${env.port} (${env.nodeEnv})`);
+// Production Docker runs with --network host, so binding 0.0.0.0 would expose the API on every host
+// interface (including the public one) instead of only to the local reverse proxy. Non-production keeps
+// 0.0.0.0 so it stays reachable the way it already is today (e.g. from another container / device on dev).
+const host = isProduction ? '127.0.0.1' : '0.0.0.0';
+const server = app.listen(env.port, host, () => {
+	console.log(`hr-api listening on ${host}:${env.port} (${env.nodeEnv})`);
 });
 
 async function shutdown(signal: string) {
